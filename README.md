@@ -90,6 +90,17 @@ Die Bilder liegen in [`demo/`](demo/) und lassen sich auch in die Fotos-App spei
 5. Aus den **Top 5** wird gewichtet zufällig gewählt – so kommt nicht immer dasselbe heraus.
 6. **Wochenplan:** Tag für Tag; einmal verplante Teile sind für die restliche Woche gesperrt (außer den erlaubten Kategorien, standardmäßig Hosen, Schuhe, Jacken, Accessoires). Geht eine Kategorie aus, wird nur in dieser wiederholt – die am seltensten verplanten Teile zuerst, und nie zweimal exakt dasselbe Outfit. Sporttage plant der Sport-Modus.
 
+## Design & Bedienung (Version 2.0)
+
+- **Startseite „Heute"**: Sind Teile im Schrank, öffnet die App direkt mit dem Tages-Outfit.
+- **Erste Schritte**: Eine Checkliste führt durch Ort, Kleidung und die optionalen Extras (Erkennung, Anprobe). Sind die Pflichtschritte erledigt, schrumpft sie auf eine Zeile; ausblendbar.
+- **Look-Karte**: Das Outfit erscheint als Collage der Einzelteile bzw. als Anprobe-Bild, darunter die Begründungen als Tags, die Bewertung und die Teile-Liste.
+- **Aktionsleiste**: „Neu mischen" und „Anziehen" bleiben beim Scrollen immer erreichbar.
+- **Woche**: Tagesleiste mit Wetter oben (tippen springt zum Tag), Tageskarten mit Icon-Buttons (Fixieren, Neu, Angezogen) und Status-Markern.
+- **Einstellungen**: In Gruppen (Planung, KI & Anprobe, Daten) mit aufklappbaren Zeilen und dem aktuellen Wert auf einen Blick.
+- **Editor**: Abschnitte als Karten, Schalter statt Checkboxen, Speichern-Leiste unten fixiert, Navigation ausgeblendet.
+- **Gestaltung**: Warme Neutraltöne, Serifen-Titel (iOS „New York"), eigenes Linien-Icon-Set, schwebende Glas-Navigation, Hell- und Dunkelmodus, Meldungen oben statt über den Buttons.
+
 ## Technik
 
 - Reines HTML/CSS/JavaScript, kein Build-Schritt. Daten in IndexedDB (lokal).

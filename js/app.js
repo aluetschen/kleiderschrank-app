@@ -83,6 +83,8 @@ const state = {
   week: null,
   placeResults: [],
   body: null,          // Ganzkörperfoto { blob, version }
+  openSettings: new Set(), // aufgeklappte Bereiche in den Einstellungen
+  showFlat: false,     // Einzelteile statt Anprobe-Bild zeigen
 };
 
 async function saveSettings() { await db.set('settings', state.settings); }
@@ -111,6 +113,52 @@ async function loadForecast() {
   state.forecast = await getForecast(state.settings.location);
 }
 
+// ---------- UI-Bausteine ----------
+const icon = (n, cls = '') => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${n}"></use></svg>`;
+const WTL = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const longDate = (d) => `${WTL[d.getDay()]}, ${d.getDate()}. ${MONATE[d.getMonth()]}`;
+const greeting = () => { const h = new Date().getHours(); return h < 11 ? 'Guten Morgen' : h < 18 ? 'Hallo' : 'Guten Abend'; };
+function pageHead(eyebrow, title, right = '') {
+  return `<header class="phead"><div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1></div>${right}</header>`;
+}
+function wpill(dateStr) {
+  const w = weatherFor(dateStr);
+  return w ? `<div class="wpill" title="${esc(state.settings.location?.name || '')}">${weatherIcon(w.code)} <b>${Math.round(w.tmax)}°</b><span>${Math.round(w.tmin)}°</span></div>` : '';
+}
+function emptyCard(ic, title, text, actions = '') {
+  return `<section class="emptystate small"><div class="emblem">${icon(ic)}</div><h2>${title}</h2><p>${text}</p>${actions}</section>`;
+}
+
+// Erste Schritte: führt neue Nutzer durch die Einrichtung (ausblendbar)
+function onboarding() {
+  const s = state.settings;
+  if (s.onboardingDone) return '';
+  const steps = [
+    { done: !!s.location, title: 'Ort fürs Wetter festlegen', text: 'Damit die Outfits zur Vorhersage passen.', act: 'data-act="go" data-view="einstellungen" data-open="ort"' },
+    { done: state.items.length >= 5, title: 'Kleidung hinzufügen', text: 'Fotografieren – oder den Beispiel-Schrank laden.', act: 'data-act="go" data-view="schrank"' },
+    { done: !!s.apiKey, opt: true, title: 'Automatische Erkennung', text: 'Claude erkennt Art, Farbe und Stil aus dem Foto.', act: 'data-act="go" data-view="einstellungen" data-open="ki"' },
+    { done: !!(state.body && s.googleKey), opt: true, title: 'Virtuelle Anprobe', text: 'Sieh die Outfits an dir – mit Ganzkörperfoto.', act: 'data-act="go" data-view="einstellungen" data-open="anprobe"' },
+  ];
+  const n = steps.filter((x) => x.done).length;
+  if (n === steps.length) return '';
+  // Pflichtschritte erledigt: nur noch eine kompakte Zeile für die optionalen Extras
+  if (steps.every((x) => x.done || x.opt)) {
+    const next = steps.find((x) => !x.done);
+    return `<section class="onboard compact"><button ${next.act}><span class="cta-ic">${icon(next.title.includes('Anprobe') ? 'person' : 'wand')}</span>
+      <span><b>${next.title}</b><small>${next.text}</small></span>${icon('chevron-right')}</button>
+      <button class="iconbtn" data-act="obHide" aria-label="Hinweis ausblenden">${icon('x')}</button></section>`;
+  }
+  return `<section class="onboard">
+    <div class="ob-head"><div><p class="eyebrow">Erste Schritte</p><h2>${n} von ${steps.length} erledigt</h2></div>
+      <button class="iconbtn" data-act="obHide" aria-label="Erste Schritte ausblenden">${icon('x')}</button></div>
+    <div class="progress"><i style="width:${(n / steps.length) * 100}%"></i></div>
+    <ol>${steps.map((st) => `<li class="${st.done ? 'done' : ''}"><button ${st.act}>
+      <span class="ob-check">${st.done ? icon('check') : ''}</span>
+      <span><b>${st.title}${st.opt ? '<em>optional</em>' : ''}</b><small>${st.text}</small></span>${st.done ? '' : icon('chevron-right')}</button></li>`).join('')}</ol>
+  </section>`;
+}
+
 // ---------- Navigation ----------
 function go(view) {
   state.view = view;
@@ -120,6 +168,7 @@ function go(view) {
 }
 
 function render() {
+  document.body.classList.toggle('editing', !!state.editing);
   const v = state.editing ? renderEditor() : ({
     schrank: renderSchrank, outfit: renderOutfit, woche: renderWoche, einstellungen: renderSettings,
   })[state.view]();
@@ -148,28 +197,36 @@ function renderSchrank() {
   const nLaundry = state.items.filter(laundryNow).length;
   const nFav = state.items.filter((i) => i.bewertung === 'liebling').length;
   const nBad = state.items.filter((i) => i.bewertung === 'ungern').length;
-  const chips = [['alle', `Alle (${state.items.length})`], ...(nFav || state.filter === 'liebling' ? [['liebling', `❤️ Lieblingsteile (${nFav})`]] : []),
-    ...(nLaundry || state.filter === 'waesche' ? [['waesche', `🧺 Wäsche (${nLaundry})`]] : []),
-    ...(nBad || state.filter === 'ungern' ? [['ungern', `👎 Ungern (${nBad})`]] : []),
-    ...Object.entries(KATEGORIEN).filter(([k]) => counts[k]).map(([k, v]) => [k, `${v} (${counts[k]})`])];
-  return `
-    <header class="top"><h1>Kleiderschrank</h1></header>
-    ${!state.settings.apiKey ? `<div class="note">Für die automatische Erkennung von Fotos bitte in den <a href="#" data-act="go" data-view="einstellungen">Einstellungen</a> einen Claude-API-Schlüssel hinterlegen. Ohne Schlüssel kannst du die Angaben selbst eintragen.</div>` : ''}
+  const fileInput = '<input id="photoInput" type="file" accept="image/*" multiple hidden>';
+  if (!state.items.length) {
+    return pageHead('Willkommen', 'Kleiderschrank') + `
+      <section class="emptystate">
+        <div class="emblem">${icon('hanger')}</div>
+        <h2>Dein Schrank ist noch leer</h2>
+        <p>Fotografiere deine Kleidung. Die App erkennt Art, Farbe und Stil und stellt daraus Outfits für jeden Tag zusammen.</p>
+        <label class="btn primary">${icon('camera')} Erstes Teil fotografieren${fileInput}</label>
+        <button class="btn" data-act="loadDemo">${icon('sparkle')} Beispiel-Schrank laden</button>
+        <p class="fine">47 gezeichnete Beispielteile (Alltag, Büro, Laufen, Rad) zum Ausprobieren – ohne Kosten, jederzeit wieder entfernbar.</p>
+      </section>`;
+  }
+  const chips = [['alle', `Alle ${state.items.length}`], ...(nFav || state.filter === 'liebling' ? [['liebling', `❤️ Lieblinge ${nFav}`]] : []),
+    ...(nLaundry || state.filter === 'waesche' ? [['waesche', `🧺 Wäsche ${nLaundry}`]] : []),
+    ...(nBad || state.filter === 'ungern' ? [['ungern', `👎 Ungern ${nBad}`]] : []),
+    ...Object.entries(KATEGORIEN).filter(([k]) => counts[k]).map(([k, v]) => [k, `${v} ${counts[k]}`])];
+  const hints = {
+    liebling: `Lieblingsteile werden bevorzugt und dürfen im Wochenplan bis zu ${MAX_FAV_PER_WEEK}× pro Woche vorkommen – mit genug Abstand, wenn sie zwischendurch in die Wäsche müssen.`,
+    ungern: 'Diese Teile schlägt die App nur noch vor, wenn nichts anderes passt. Gute Kandidaten zum Aussortieren.',
+    waesche: `Teile im Wäschekorb werden nicht vorgeschlagen und sind nach ${state.settings.laundryDays} Tagen automatisch wieder verfügbar.${nLaundry ? `<br><button class="btn sm" data-act="allClean">${icon('check')} Alles wieder sauber</button>` : ''}`,
+  };
+  return pageHead(`${state.items.length} Teile`, 'Kleiderschrank') + `
     <div class="chips scroll">${chips.map(([k, l]) => `<button class="chip ${state.filter === k ? 'on' : ''}" data-act="filter" data-k="${k}">${esc(l)}</button>`).join('')}</div>
-    ${state.filter === 'liebling' ? `<div class="note">Deine Lieblingsteile werden bevorzugt und dürfen im Wochenplan bis zu ${MAX_FAV_PER_WEEK}× pro Woche vorkommen – mit genug Abstand, wenn sie zwischendurch in die Wäsche müssen.</div>` : ''}
-    ${state.filter === 'ungern' ? '<div class="note">Diese Teile schlägt die App nur noch vor, wenn nichts anderes passt. Gute Kandidaten zum Aussortieren.</div>' : ''}
-    ${state.filter === 'waesche' ? `<div class="note">Teile im Wäschekorb werden nicht vorgeschlagen. Nach ${state.settings.laundryDays} Tagen sind sie automatisch wieder verfügbar. ${nLaundry ? '<button class="btn small" data-act="allClean">✓ Alles wieder sauber</button>' : ''}</div>` : ''}
+    ${hints[state.filter] ? `<div class="hint">${hints[state.filter]}</div>` : ''}
     ${list.length ? `<div class="grid">${list.map((i) => `
       <button class="tile ${laundryNow(i) ? 'laundry' : ''}" data-act="edit" data-id="${i.id}">
-        <img src="${imgUrl(i)}" alt="" loading="lazy">${laundryNow(i) ? '<em class="badge">🧺</em>' : ''}${i.bewertung === 'liebling' ? '<em class="badge left">❤️</em>' : i.bewertung === 'ungern' ? '<em class="badge left">👎</em>' : ''}
+        <div class="ph"><img src="${imgUrl(i)}" alt="" loading="lazy">${laundryNow(i) ? '<em class="badge">🧺</em>' : ''}${i.bewertung === 'liebling' ? '<em class="badge left">❤️</em>' : i.bewertung === 'ungern' ? '<em class="badge left">👎</em>' : ''}</div>
         <span>${esc(i.bezeichnung || KATEGORIEN[i.kategorie])}</span>
-      </button>`).join('')}</div>`
-    : `<div class="empty"><div class="big">👕</div><p>Noch nichts im Schrank.<br>Tippe auf <b>+</b> und fotografiere dein erstes Kleidungsstück.</p><p class="muted">Tipp: Kleidung flach auf einen ruhigen Untergrund legen oder auf einen Bügel hängen.</p>
-      <button class="btn" data-act="loadDemo">Beispiel-Schrank laden</button>
-      <p class="muted small">Gezeichnete Beispielteile (Alltag, Büro, Laufen, Rad) zum Ausprobieren – ohne Fotos, ohne API-Kosten. Lassen sich jederzeit wieder entfernen.</p></div>`}
-    <label class="fab" aria-label="Kleidungsstück hinzufügen">+
-      <input id="photoInput" type="file" accept="image/*" multiple hidden>
-    </label>`;
+      </button>`).join('')}</div>` : '<p class="fine center">Keine Teile in dieser Auswahl.</p>'}
+    <label class="fab" aria-label="Kleidungsstück hinzufügen">${icon('plus')}${fileInput}</label>`;
 }
 
 async function handlePhotos(files) {
@@ -249,39 +306,48 @@ function renderEditor() {
   const opt = (obj, val) => Object.entries(obj).map(([k, v]) => `<option value="${k}" ${k === val ? 'selected' : ''}>${esc(v)}</option>`).join('');
   const multi = (name, obj, vals) => Object.entries(obj).map(([k, v]) => `
     <label class="chip check"><input type="checkbox" name="${name}" value="${k}" ${vals.includes(k) ? 'checked' : ''}><span>${esc(v)}</span></label>`).join('');
+  const isSport = i.sportteil && i.sportteil !== 'keins';
   return `
-    <header class="top"><button class="link" data-act="cancelEdit">‹ Zurück</button><h1>${i.isNew ? 'Neues Teil' : 'Bearbeiten'}</h1></header>
+    <header class="navbar"><button class="navback" data-act="cancelEdit">${icon('chevron-left')} Zurück</button>
+      <span class="navtitle">${i.isNew ? 'Neues Teil' : 'Bearbeiten'}</span><span></span></header>
     <form id="itemForm" class="editor">
       <div class="photo"><img src="${imgUrl(i)}" alt="">${state.analyzing ? '<div class="overlay"><div class="spinner"></div>KI erkennt das Teil …</div>' : ''}</div>
-      ${state.settings.apiKey && !state.analyzing ? '<button type="button" class="btn ghost small" data-act="analyze">✨ Erneut automatisch erkennen</button>' : ''}
- <fieldset><legend>Wie gern trägst du das?</legend><div class="chips">
-        ${[['liebling', '❤️ Lieblingsteil'], ['', 'Normal'], ['ungern', '👎 Ungern']].map(([v, l]) => `<label class="chip check"><input type="radio" name="bewertung" value="${v}" ${(i.bewertung || '') === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}
-      </div></fieldset>
-      <label>Bezeichnung<input name="bezeichnung" value="${esc(i.bezeichnung)}" placeholder="z. B. Dunkelblaue Chino"></label>
-      <label>Kategorie<select name="kategorie">${opt(KATEGORIEN, i.kategorie)}</select></label>
-      <fieldset><legend>Farben</legend>
-        <div id="colors">${(i.farben || []).map((f, n) => colorRow(f, n)).join('')}</div>
-        <button type="button" class="btn ghost small" data-act="addColor">+ Farbe</button>
-      </fieldset>
-      <fieldset><legend>Muster</legend><div class="chips">
-        <label class="chip check"><input type="radio" name="muster" value="uni" ${i.muster !== 'gemustert' ? 'checked' : ''}><span>Uni</span></label>
-        <label class="chip check"><input type="radio" name="muster" value="gemustert" ${i.muster === 'gemustert' ? 'checked' : ''}><span>Gemustert</span></label>
-      </div></fieldset>
-      <label>Stil: <b id="formOut">${FORM_LABELS[i.formalitaet]}</b><input type="range" name="formalitaet" min="1" max="5" value="${i.formalitaet}" data-out="formOut" data-labels="form"></label>
-      <label>Wärme: <b id="warmOut">${WARM_LABELS[i.waerme]}</b><input type="range" name="waerme" min="1" max="5" value="${i.waerme}" data-out="warmOut" data-labels="warm"></label>
-      <fieldset><legend>Anlässe</legend><div class="chips">${multi('anlaesse', ANLAESSE, i.anlaesse || [])}</div></fieldset>
-      <fieldset><legend>Jahreszeiten</legend><div class="chips">${multi('saisons', SAISONS, i.saisons || [])}</div></fieldset>
-      <label class="row"><input type="checkbox" name="regenfest" ${i.regenfest ? 'checked' : ''}> Regenfest</label>
-      <fieldset class="sportbox"><legend>Sportbekleidung (für den Sport-Modus)</legend>
-        <label>Funktion<select name="sportteil">${opt(SPORTTEILE, i.sportteil || 'keins')}</select></label>
+      ${state.settings.apiKey && !state.analyzing ? `<button type="button" class="btn ghost small" data-act="analyze">${icon('wand')} Erneut automatisch erkennen</button>` : ''}
+      ${!state.settings.apiKey && i.isNew ? `<div class="hint">Tipp: Mit einem Claude-Schlüssel füllt die App diese Angaben automatisch aus. <a href="#" data-act="go" data-view="einstellungen" data-open="ki">Einrichten</a></div>` : ''}
+      <section class="group"><h3>Wie gern trägst du das?</h3>
+        <div class="seg3">${[['liebling', '❤️ Liebling'], ['', 'Normal'], ['ungern', '👎 Ungern']].map(([v, l]) => `<label class="chip check"><input type="radio" name="bewertung" value="${v}" ${(i.bewertung || '') === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+      </section>
+      <section class="group"><h3>Grunddaten</h3>
+        <label class="field">Bezeichnung<input name="bezeichnung" value="${esc(i.bezeichnung)}" placeholder="z. B. Dunkelblaue Chino"></label>
+        <label class="field">Kategorie<select name="kategorie">${opt(KATEGORIEN, i.kategorie)}</select></label>
+      </section>
+      <section class="group"><h3>Farben & Muster</h3>
+        <div id="colors" class="editor">${(i.farben || []).map((f, n) => colorRow(f, n)).join('')}</div>
+        <button type="button" class="btn ghost small" data-act="addColor">${icon('plus')} Farbe hinzufügen</button>
+        <div class="seg3" style="grid-template-columns:1fr 1fr">
+          <label class="chip check"><input type="radio" name="muster" value="uni" ${i.muster !== 'gemustert' ? 'checked' : ''}><span>Uni</span></label>
+          <label class="chip check"><input type="radio" name="muster" value="gemustert" ${i.muster === 'gemustert' ? 'checked' : ''}><span>Gemustert</span></label>
+        </div>
+      </section>
+      <section class="group"><h3>Eigenschaften</h3>
+        <label class="range">Stil: <b id="formOut">${FORM_LABELS[i.formalitaet]}</b><input type="range" name="formalitaet" min="1" max="5" value="${i.formalitaet}" data-out="formOut" data-labels="form"></label>
+        <label class="range">Wärme: <b id="warmOut">${WARM_LABELS[i.waerme]}</b><input type="range" name="waerme" min="1" max="5" value="${i.waerme}" data-out="warmOut" data-labels="warm"></label>
+        <label class="switchrow">Regenfest<input type="checkbox" class="switch" name="regenfest" ${i.regenfest ? 'checked' : ''}></label>
+      </section>
+      <section class="group"><h3>Anlässe</h3><div class="chips">${multi('anlaesse', ANLAESSE, i.anlaesse || [])}</div>
+        <h3>Jahreszeiten</h3><div class="chips">${multi('saisons', SAISONS, i.saisons || [])}</div>
+      </section>
+      <details class="group sportbox" ${isSport ? 'open' : ''}><summary>Sportbekleidung</summary>
+        <p class="fine" style="margin:0">Nur für Lauf- und Radkleidung: Die Funktion braucht der Sport-Modus.</p>
+        <label class="field">Funktion<select name="sportteil">${opt(SPORTTEILE, i.sportteil || 'keins')}</select></label>
         <div class="chips">${multi('sportarten', { laufen: 'Laufen', rad: 'Radfahren' }, i.sportarten || [])}</div>
-      </fieldset>
-      ${!i.isNew ? `<button type="button" class="btn small" data-act="toggleLaundry">${laundryNow(i) ? '✓ Wieder sauber' : '🧺 In die Wäsche'}</button>` : ''}
-      ${!i.isNew ? `<p class="muted">Getragen: ${i.wornCount || 0}× ${i.lastWorn ? `· zuletzt ${fmtDay(parseYmd(i.lastWorn))}` : ''}</p>` : ''}
-      <div class="actions">
-        <button type="submit" class="btn primary" ${state.analyzing ? 'disabled' : ''}>Speichern</button>
-        ${!i.isNew ? '<button type="button" class="btn danger" data-act="deleteItem">Löschen</button>' : ''}
-      </div>
+      </details>
+      ${!i.isNew ? `<section class="group"><h3>Status</h3>
+        <div class="statusrow"><span>${laundryNow(i) ? '🧺 Liegt in der Wäsche' : 'Im Schrank'}<br><span class="fine">Getragen: ${i.wornCount || 0}×${i.lastWorn ? ` · zuletzt ${fmtDay(parseYmd(i.lastWorn))}` : ''}</span></span>
+          <button type="button" class="btn sm" data-act="toggleLaundry">${laundryNow(i) ? `${icon('check')} Wieder sauber` : `${icon('basket')} In die Wäsche`}</button></div>
+        <button type="button" class="btn danger sm" data-act="deleteItem">${icon('trash')} Teil löschen</button>
+      </section>` : ''}
+      <div class="savebar"><button type="submit" class="btn primary block" ${state.analyzing ? 'disabled' : ''}>${icon('check')} Speichern</button></div>
     </form>`;
 }
 
@@ -289,7 +355,7 @@ function colorRow(f, n) {
   return `<div class="colorrow" data-n="${n}">
     <input type="color" name="hex" value="${esc(f.hex)}">
     <input name="cname" value="${esc(f.name)}" placeholder="Farbname">
-    <label class="row small"><input type="checkbox" name="neutral" ${f.neutral ? 'checked' : ''}> neutral</label>
+    <label><input type="checkbox" name="neutral" ${f.neutral ? 'checked' : ''}> neutral</label>
     <button type="button" class="x" data-act="removeColor" data-n="${n}" aria-label="Farbe entfernen">×</button>
   </div>`;
 }
@@ -335,22 +401,27 @@ async function saveEditing() {
 function weatherBlock(dateStr) {
   const w = weatherFor(dateStr);
   const d = parseYmd(dateStr);
-  if (!state.settings.location) return `<div class="weather muted">Kein Ort festgelegt – es wird mit ${dayTemp(null, d)} °C (Jahreszeit) gerechnet. <a href="#" data-act="go" data-view="einstellungen">Ort festlegen</a></div>`;
-  if (!w) return `<div class="weather muted">Keine Vorhersage für diesen Tag – gerechnet wird mit ${dayTemp(null, d)} °C.</div>`;
+  const off = state.prefs.tempOffset ? ` · persönlich ${state.prefs.tempOffset > 0 ? '+' : ''}${state.prefs.tempOffset} °C` : '';
+  if (!state.settings.location) {
+    return `<div class="weather"><span class="wi">🌡️</span><span><b>Kein Ort festgelegt</b><br><span class="muted">Gerechnet wird mit ${dayTemp(null, d)} °C (Jahreszeit).</span></span>
+      <button class="btn sm" data-act="go" data-view="einstellungen" data-open="ort">${icon('pin')} Ort</button></div>`;
+  }
+  if (!w) return `<div class="weather"><span class="wi">🌡️</span><span>Keine Vorhersage für diesen Tag – gerechnet wird mit ${dayTemp(null, d)} °C.</span></div>`;
   return `<div class="weather"><span class="wi">${weatherIcon(w.code)}</span>
-    <span><b>${Math.round(w.tmin)}° / ${Math.round(w.tmax)}°</b> · Regen ${w.rain ?? 0} %<br><span class="muted">${esc(state.settings.location.name)}</span></span></div>`;
+    <span><b>${Math.round(w.tmin)}° bis ${Math.round(w.tmax)}°</b> · Regen ${w.rain ?? 0} %<br><span class="muted">${esc(state.settings.location.name.split(',')[0])}${off}</span></span></div>`;
 }
 
 // Einzelteile als Liste: Bild, Kategorie, Name, Farben, Tausch-Knopf
 function itemList(slots, act, extra = '') {
   return `<ul class="itemlist">${SLOT_ORDER.filter((k) => slots[k]).map((k) => {
     const it = slots[k];
+    const fav = it.bewertung === 'liebling';
     return `<li>
       <img src="${imgUrl(it)}" alt="">
       <div class="il-text"><small>${esc(KATEGORIEN[k])}</small><b>${esc(it.bezeichnung || KATEGORIEN[k])}</b>
         <span class="dots">${(it.farben || []).map((f) => `<i style="background:${esc(f.hex)}" title="${esc(f.name)}"></i>`).join('')}</span></div>
-      <button class="heartbtn" data-act="favItem" data-id="${it.id}" aria-label="Als Lieblingsteil markieren">${it.bewertung === 'liebling' ? '❤️' : '🤍'}</button>
-      <button class="swapbtn" data-act="${act}" data-slot="${k}" ${extra} aria-label="${esc(KATEGORIEN[k])} tauschen">↻</button>
+      <button class="iconbtn heartbtn ${fav ? 'on' : ''}" data-act="favItem" data-id="${it.id}" aria-label="${fav ? 'Kein Lieblingsteil mehr' : 'Als Lieblingsteil markieren'}">${icon(fav ? 'heart-fill' : 'heart')}</button>
+      <button class="iconbtn swapbtn" data-act="${act}" data-slot="${k}" ${extra} aria-label="${esc(KATEGORIEN[k])} austauschen">${icon('refresh')}</button>
     </li>`;
   }).join('')}</ul>`;
 }
@@ -360,23 +431,29 @@ const tryState = new Map(); // Schlüssel -> { status: 'loading' | 'done' | 'err
 const tryChecked = new Set();
 
 function tryOnBlock(slots, attrs) {
+  // "Look"-Karte: Flat-Lay der Einzelteile – oder das Anprobe-Bild, sobald es erzeugt ist
+  const items = SLOT_ORDER.filter((k) => slots[k]).map((k) => slots[k]);
+  const flat = `<div class="flatlay n${Math.min(items.length, 6)}">${items.slice(0, 6).map((i) => `<img src="${imgUrl(i)}" alt="${esc(i.bezeichnung)}">`).join('')}</div>`;
   if (!state.body) {
-    return `<div class="tryon-box empty-try"><span class="big">🧍</span>
-      <p>Lade in den <a href="#" data-act="go" data-view="einstellungen">Einstellungen</a> ein Ganzkörperfoto hoch, dann siehst du hier das Outfit an dir.</p></div>`;
+    return `<div class="look tryon-box">${flat}
+      <button class="look-btn" data-act="go" data-view="einstellungen" data-open="anprobe">${icon('person')} Anprobe einrichten</button></div>`;
   }
   const key = tryOnKey(slots, state.body.version);
   const t = tryState.get(key);
-  if (t?.status === 'done') {
-    return `<div class="tryon-box"><img class="tryon" src="${t.url}" alt="Anprobe" data-act="zoom">
-      <button class="mini-btn regen" data-act="tryon" data-force="1" ${attrs}>↻ Neu erzeugen</button></div>`;
+  if (t?.status === 'done' && !state.showFlat) {
+    return `<div class="look tryon-box"><img class="tryon" src="${t.url}" alt="Anprobe" data-act="zoom">
+      <div class="look-bar"><button class="look-btn" data-act="lookFlat">${icon('grid')} Einzelteile</button>
+      <button class="look-btn" data-act="tryon" data-force="1" ${attrs}>${icon('refresh')} Neu</button></div></div>`;
   }
   if (t?.status === 'loading') {
-    return `<div class="tryon-box loading" data-trykey="${esc(key)}"><div class="spinner dark"></div><p>Anprobe wird erstellt …<br><span class="muted small">dauert ca. 10–40 Sekunden</span></p></div>`;
+    return `<div class="look tryon-box loading" data-trykey="${esc(key)}">${flat}
+      <div class="look-load"><div class="spinner dark"></div><b>Anprobe wird erstellt …</b><small>dauert ca. 10–40 Sekunden</small></div></div>`;
   }
-  return `<div class="tryon-box empty-try" data-trykey="${esc(key)}">
-    ${t?.status === 'error' ? `<p class="err">${esc(t.error)}</p>` : '<span class="big">🧍</span>'}
-    <button class="btn primary small" data-act="tryon" ${attrs}>👤 ${t?.status === 'error' ? 'Erneut versuchen' : 'Anprobe ansehen'}</button>
-    <p class="muted small">Erstellt mit Google Gemini · kostet wenige Cent pro Bild</p></div>`;
+  return `<div class="look tryon-box" data-trykey="${esc(key)}">${flat}
+    ${t?.status === 'error' ? `<p class="err">${esc(t.error)}</p>` : ''}
+    <div class="look-bar">${t?.status === 'done'
+      ? `<button class="look-btn primary" data-act="lookFlat">${icon('person')} Anprobe zeigen</button>`
+      : `<button class="look-btn primary" data-act="tryon" ${attrs}>${icon('person')} ${t?.status === 'error' ? 'Erneut versuchen' : 'An mir ansehen'}</button>`}</div></div>`;
 }
 
 // Bereits erzeugte Bilder aus dem Speicher holen, ohne Google erneut zu fragen
@@ -420,39 +497,41 @@ function renderOutfit() {
   const o = state.outfit;
   const d = parseYmd(o.date);
   if (!o.occasion) o.occasion = defaultOccasion(d);
-  const t = ymd(today()), m = ymd(addDays(today(), 1));
-  let body = '';
-  if (o.occasion === 'sport' && state.items.length) return outfitHeader(o, t, m) + renderSportOutfit(o);
-  if (!state.items.length) body = '<div class="empty"><p>Fotografiere zuerst ein paar Teile im Schrank.</p></div>';
-  else if (o.current) {
-    body = `${tryOnBlock(o.current.slots, 'data-src="outfit"')}
-      <h2 class="sub">Die Teile im Einzelnen</h2>
-      ${itemList(o.current.slots, 'swap')}
-      <ul class="reasons">${o.current.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
-      ${feedbackBlock(o)}
-      <div class="actions">
-        <button class="btn" data-act="suggest">🔀 Anderer Vorschlag</button>
-        <button class="btn primary" data-act="wearToday">✓ Das ziehe ich an</button>
-      </div>`;
-  } else if (o.hints) {
-    body = `<div class="note">Für ein Outfit fehlt noch: <ul>${o.hints.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>`;
+  if (!state.items.length) {
+    return outfitHeader(o) + onboarding() + emptyCard('hanger', 'Noch keine Kleidung', 'Lege zuerst ein paar Teile in den Schrank – oder lade den Beispiel-Schrank.',
+      `<button class="btn primary" data-act="go" data-view="schrank">${icon('hanger')} Zum Schrank</button>`);
   }
-  return outfitHeader(o, t, m) + `
-    ${weatherBlock(o.date)}
-    ${!o.current && state.items.length ? '<button class="btn primary wide" data-act="suggest">Outfit vorschlagen</button>' : ''}
-    ${body}
-    ${favoritesBlock(o)}`;
+  if (o.occasion === 'sport') return outfitHeader(o) + renderSportOutfit(o);
+  let body;
+  if (o.current) {
+    body = `${tryOnBlock(o.current.slots, 'data-src="outfit"')}
+      <div class="tags">${o.current.reasons.map((r) => `<span class="tag">${esc(r)}</span>`).join('')}</div>
+      ${feedbackBlock(o)}
+      <h2 class="sec">Die Teile im Einzelnen</h2>
+      ${itemList(o.current.slots, 'swap')}
+      <div class="actionbar">
+        <button class="btn" data-act="suggest">${icon('shuffle')} Neu mischen</button>
+        <button class="btn primary" data-act="wearToday">${icon('check')} Anziehen</button>
+      </div>`;
+  } else {
+    body = `${o.hints ? `<div class="hint"><b>Für ein Outfit fehlt noch:</b><ul>${o.hints.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
+      <button class="cta" data-act="suggest"><span class="cta-ic">${icon('sparkle')}</span>
+        <span><b>Outfit vorschlagen</b><small>Passend zu Wetter, Anlass und deinen Vorlieben</small></span>${icon('chevron-right')}</button>`;
+  }
+  return outfitHeader(o) + onboarding() + weatherBlock(o.date) + body + favoritesBlock(o);
 }
 
-function outfitHeader(o, t, m) {
-  return `
-    <header class="top"><h1>Outfit</h1></header>
-    <div class="chips">
-      <button class="chip ${o.date === t ? 'on' : ''}" data-act="odate" data-d="${t}">Heute</button>
-      <button class="chip ${o.date === m ? 'on' : ''}" data-act="odate" data-d="${m}">Morgen</button>
-      <input type="date" class="chip" id="odate" value="${o.date}">
+function outfitHeader(o) {
+  const t = ymd(today()), m = ymd(addDays(today(), 1));
+  const d = parseYmd(o.date);
+  const other = o.date !== t && o.date !== m;
+  return pageHead(o.date === t ? `${greeting()} · ${longDate(d)}` : longDate(d), o.occasion === 'sport' ? 'Dein Training' : 'Dein Outfit', wpill(o.date)) + `
+    <div class="seg" role="tablist" aria-label="Tag">
+      <button class="${o.date === t ? 'on' : ''}" data-act="odate" data-d="${t}">Heute</button>
+      <button class="${o.date === m ? 'on' : ''}" data-act="odate" data-d="${m}">Morgen</button>
+      <label class="${other ? 'on' : ''}">${icon('calendar')}<span>${other ? fmtDay(d) : 'Datum'}</span><input type="date" id="odate" value="${o.date}" aria-label="Datum wählen"></label>
     </div>
-    <div class="chips">${Object.entries(ANLAESSE).map(([k, v]) => `<button class="chip ${o.occasion === k ? 'on' : ''}" data-act="oocc" data-k="${k}">${k === 'sport' ? '🏃 ' : ''}${v}</button>`).join('')}</div>`;
+    <div class="chips scroll">${Object.entries(ANLAESSE).map(([k, v]) => `<button class="chip ${o.occasion === k ? 'on' : ''}" data-act="oocc" data-k="${k}">${v}</button>`).join('')}</div>`;
 }
 
 // ---------- Outfit bewerten: 👎 (mit Grund) / 👍 / ❤️ ----------
@@ -546,13 +625,16 @@ function favoritesBlock(o) {
   const favs = state.prefs.favorites.map((f) => ({ f, slots: favSlots(f) })).filter((x) => x.slots)
     .sort((a, b) => (b.f.occasion === o.occasion) - (a.f.occasion === o.occasion) || b.f.at - a.f.at);
   if (!favs.length) return '';
-  return `<h2 class="sub">❤️ Deine Lieblingsoutfits</h2>
-    ${favs.slice(0, 10).map(({ f, slots }) => `<div class="fav">
-      <div class="mini">${SLOT_ORDER.filter((k) => slots[k]).map((k) => `<img src="${imgUrl(slots[k])}" alt="" title="${esc(slots[k].bezeichnung)}" class="${laundryNow(slots[k]) ? 'dim' : ''}">`).join('')}</div>
-      <div class="favact"><span class="muted small">${esc(ANLAESSE[f.occasion] || '')}</span>
-        <button class="mini-btn" data-act="favUse" data-k="${esc(f.key)}">Anziehen</button>
-        <button class="mini-btn" data-act="favDel" data-k="${esc(f.key)}" aria-label="Favorit entfernen">✕</button></div>
-    </div>`).join('')}`;
+  return `<h2 class="sec">Deine Lieblingsoutfits</h2>
+    <div class="carousel">${favs.slice(0, 10).map(({ f, slots }) => {
+      const its = SLOT_ORDER.filter((k) => slots[k]).map((k) => slots[k]);
+      return `<article class="favcard">
+        <div class="flatlay n${Math.min(its.length, 6)}">${its.slice(0, 6).map((i) => `<img src="${imgUrl(i)}" alt="" title="${esc(i.bezeichnung)}" class="${laundryNow(i) ? 'dim' : ''}">`).join('')}</div>
+        <div class="fc-foot"><span>${esc(ANLAESSE[f.occasion] || '')}</span>
+          <button class="btn sm primary" data-act="favUse" data-k="${esc(f.key)}">Anziehen</button>
+          <button class="iconbtn" data-act="favDel" data-k="${esc(f.key)}" aria-label="Lieblingsoutfit entfernen">${icon('x')}</button></div>
+      </article>`;
+    }).join('')}</div>`;
 }
 
 // ---------- Sport-Modus ----------
@@ -589,19 +671,23 @@ function renderSportOutfit(o) {
   if (!o.sport) o.sport = { ...state.settings.sport };
   const sp = o.sport;
   const kit = sportKitFor(o.date, sp, new Set());
+  const c = kit.cond;
   const DAUER = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6];
   return `
-    <div class="chips">${Object.entries(SPORTARTEN).map(([k, v]) => `<button class="chip ${sp.art === k ? 'on' : ''}" data-act="sart" data-k="${k}">${v}</button>`).join('')}</div>
-    <div class="row sportform">
-      <label>Start<input type="time" id="sstart" value="${sp.start}"></label>
-      <label>Dauer<select id="sdauer">${DAUER.map((d) => `<option value="${d}" ${d === +sp.dauer ? 'selected' : ''}>${String(d).replace('.', ',')} h</option>`).join('')}</select></label>
+    <div class="seg">${Object.entries(SPORTARTEN).map(([k, v]) => `<button class="${sp.art === k ? 'on' : ''}" data-act="sart" data-k="${k}">${v}</button>`).join('')}</div>
+    <div class="formrow">
+      <label class="field">Start<input type="time" id="sstart" value="${sp.start}"></label>
+      <label class="field">Dauer<select id="sdauer">${DAUER.map((d) => `<option value="${d}" ${d === +sp.dauer ? 'selected' : ''}>${String(d).replace('.', ',')} h</option>`).join('')}</select></label>
     </div>
-    <div class="weather"><span class="wi">${sp.art === 'laufen' ? '🏃' : '🚴'}</span><span>${condLine(kit, sp)}</span></div>
-    <h2 class="sub">Das ziehst du an</h2>
+    <div class="weather sportcond"><span class="wi">${sp.art === 'laufen' ? '🏃' : '🚴'}</span>
+      <div><p class="feels">Gefühlt ${kit.E} °C</p>
+      <p class="small">${sp.start}–${addHours(sp.start, sp.dauer)} Uhr · ${Math.round(c.tmin)}${Math.round(c.tmax) !== Math.round(c.tmin) ? `–${Math.round(c.tmax)}` : ''} °C · Wind bis ${Math.round(c.wind)} km/h · Regen ${Math.round(c.rain)} %</p>
+      <p class="small muted">${sp.art === 'laufen' ? 'Beim Laufen zählt die gemessene Temperatur' : 'inklusive Fahrtwind'}${c.estimated ? ' · ohne Vorhersage geschätzt' : ''}</p></div></div>
+    <h2 class="sec">Das ziehst du an</h2>
     ${kitList(kit)}
-    ${kit.notes.length ? `<ul class="reasons">${kit.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
-    <div class="actions"><button class="btn primary" data-act="sportWear" ${kit.items.length ? '' : 'disabled'}>✓ Das ziehe ich an</button></div>
-    <p class="muted small">Tipp: Sportteile bekommen im Schrank unter „Sportbekleidung" ihre Funktion (z. B. Armlinge, Weste). Nur so findet der Sport-Modus sie.</p>`;
+    ${kit.notes.length ? `<div class="tags">${kit.notes.map((n) => `<span class="tag">${esc(n)}</span>`).join('')}</div>` : ''}
+    <div class="actionbar"><button class="btn primary" data-act="sportWear" ${kit.items.length ? '' : 'disabled'}>${icon('check')} Anziehen</button></div>
+    <p class="fine">Sportteile brauchen im Schrank unter „Sportbekleidung" ihre Funktion (z. B. Armlinge, Weste) – nur so findet der Sport-Modus sie.</p>`;
 }
 
 function suggest() {
@@ -684,39 +770,47 @@ function nextMonday() {
 function renderWoche() {
   const w = state.week;
   const t = ymd(today()), mo = nextMonday();
-  const header = `
-    <header class="top"><h1>Wochenplan</h1></header>
-    <div class="chips">
-      <button class="chip ${w?.start === t ? 'on' : ''}" data-act="wstart" data-d="${t}">Ab heute</button>
-      <button class="chip ${w?.start === mo ? 'on' : ''}" data-act="wstart" data-d="${mo}">Ab Montag ${fmtDay(parseYmd(mo)).slice(3)}</button>
+  const range = w ? `${fmtDay(w.days[0].dateObj)} – ${fmtDay(w.days[6].dateObj)}` : 'Sieben Tage im Voraus';
+  const head = pageHead(range, 'Deine Woche') + `
+    <div class="seg">
+      <button class="${w?.start === t ? 'on' : ''}" data-act="wstart" data-d="${t}">Ab heute</button>
+      <button class="${w?.start === mo ? 'on' : ''}" data-act="wstart" data-d="${mo}">Ab Montag ${fmtDay(parseYmd(mo)).slice(3)}</button>
     </div>`;
-  if (!state.items.length) return header + '<div class="empty"><p>Fotografiere zuerst ein paar Teile im Schrank.</p></div>';
-  if (!w) return header + '<p class="muted">Wähle den Starttag. Danach bekommst du für 7 Tage je ein Outfit – passend zu Wetter und Anlass, ohne doppelte Teile.</p>';
+  if (!state.items.length) return head + emptyCard('hanger', 'Noch keine Kleidung', 'Lege zuerst ein paar Teile in den Schrank.', `<button class="btn primary" data-act="go" data-view="schrank">Zum Schrank</button>`);
+  if (!w) return head + emptyCard('calendar', 'Plane deine Woche', 'Wähle oben den Starttag. Du bekommst für sieben Tage je ein Outfit – passend zu Wetter und Anlass, ohne doppelte Teile.');
   const kits = weekSportKits();
+  const strip = `<div class="daystrip">${w.days.map((d, n) => {
+    const wx = weatherFor(d.date);
+    const has = d.outfit || kits[n]?.items.length;
+    return `<button class="${has ? 'has' : ''} ${d.worn ? 'worn' : ''}" data-act="wjump" data-n="${n}" aria-label="${longDate(d.dateObj)}">
+      <span>${WT[d.dateObj.getDay()]}</span><b>${d.dateObj.getDate()}</b><i>${wx ? weatherIcon(wx.code) : '·'}</i><small>${wx ? `${Math.round(wx.tmax)}°` : ''}</small></button>`;
+  }).join('')}</div>`;
   const days = w.days.map((d, n) => {
     const wx = weatherFor(d.date);
     if (kits[n]) return sportDayCard(d, n, kits[n], wx);
-    return `<section class="day ${d.locked ? 'locked' : ''} ${d.worn ? 'worn' : ''}">
+    const open = state.openDay === n;
+    return `<section class="day ${d.locked ? 'locked' : ''} ${d.worn ? 'worn' : ''}" id="day-${n}">
       <div class="dayhead">
-        <b>${fmtDay(d.dateObj)}</b>
-        <span class="muted">${wx ? `${weatherIcon(wx.code)} ${Math.round(wx.tmin)}°/${Math.round(wx.tmax)}°${wx.rain >= 50 ? ` ☂ ${wx.rain} %` : ''}` : `≈ ${dayTemp(null, d.dateObj)} °C`}</span>
-        <select data-act="wocc" data-n="${n}">${Object.entries(ANLAESSE).map(([k, v]) => `<option value="${k}" ${k === d.occasion ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        <div class="dh-date"><b>${fmtDay(d.dateObj)}</b><span>${wx ? `${weatherIcon(wx.code)} ${Math.round(wx.tmin)}° bis ${Math.round(wx.tmax)}°${wx.rain >= 50 ? ` · ☂ ${wx.rain} %` : ''}` : `≈ ${dayTemp(null, d.dateObj)} °C`}</span></div>
+        <select class="pillselect" data-act="wocc" data-n="${n}" aria-label="Anlass">${Object.entries(ANLAESSE).map(([k, v]) => `<option value="${k}" ${k === d.occasion ? 'selected' : ''}>${v}</option>`).join('')}</select>
       </div>
-      ${d.outfit ? `${state.openDay === n ? tryOnBlock(d.outfit.slots, `data-src="week" data-n="${n}"`) + itemList(d.outfit.slots, 'wswap', `data-n="${n}"`)
-          : `<div class="mini">${SLOT_ORDER.filter((k) => d.outfit.slots[k]).map((k) => `<button class="mp" data-act="wswap" data-n="${n}" data-slot="${k}" title="${esc(d.outfit.slots[k].bezeichnung)}"><img src="${imgUrl(d.outfit.slots[k])}" alt=""></button>`).join('')}</div>
-            <p class="names small muted">${SLOT_ORDER.filter((k) => d.outfit.slots[k]).map((k) => esc(d.outfit.slots[k].bezeichnung)).join(' · ')}</p>`}`
-        : `<p class="muted small">${d.hints?.length ? 'Fehlt: ' + esc(d.hints.join(', ')) : 'Noch kein Outfit'}</p>`}
+      ${d.locked || d.worn ? `<div class="flags">${d.locked && !d.worn ? `<span class="flag">${icon('lock')} Fixiert</span>` : ''}${d.worn ? `<span class="flag ok">${icon('check')} Getragen</span>` : ''}</div>` : ''}
+      ${d.outfit ? (open ? tryOnBlock(d.outfit.slots, `data-src="week" data-n="${n}"`) + itemList(d.outfit.slots, 'wswap', `data-n="${n}"`)
+          : `<div class="mini">${SLOT_ORDER.filter((k) => d.outfit.slots[k]).map((k) => `<button class="mp" data-act="wswap" data-n="${n}" data-slot="${k}" title="${esc(d.outfit.slots[k].bezeichnung)} austauschen"><img src="${imgUrl(d.outfit.slots[k])}" alt=""></button>`).join('')}</div>
+            <p class="names">${SLOT_ORDER.filter((k) => d.outfit.slots[k]).map((k) => esc(d.outfit.slots[k].bezeichnung)).join(' · ')}</p>`)
+        : `<p class="fine">${d.hints?.length ? 'Fehlt: ' + esc(d.hints.join(', ')) : 'Noch kein Outfit – tippe auf „Woche planen".'}</p>`}
       <div class="dayact">
-        ${d.outfit ? `<button class="mini-btn ${state.openDay === n ? 'on' : ''}" data-act="wopen" data-n="${n}">${state.openDay === n ? '▲ Zuklappen' : '👤 Anprobe & Details'}</button>` : ''}
-        <button class="mini-btn" data-act="wlock" data-n="${n}">${d.locked ? '🔒 Fixiert' : '🔓 Fixieren'}</button>
-        <button class="mini-btn" data-act="wredo" data-n="${n}" ${d.locked ? 'disabled' : ''}>↻ Neu</button>
-        <button class="mini-btn" data-act="wworn" data-n="${n}" ${!d.outfit || d.worn ? 'disabled' : ''}>${d.worn ? '✓ Getragen' : '✓ Angezogen'}</button>
+        ${d.outfit ? `<button class="pillbtn ${open ? 'on' : ''}" data-act="wopen" data-n="${n}">${icon(open ? 'chevron-up' : 'person')} ${open ? 'Zuklappen' : 'Anprobe & Details'}</button>` : ''}
+        <span class="spacer"></span>
+        <button class="iconbtn ${d.locked ? 'on' : ''}" data-act="wlock" data-n="${n}" aria-label="${d.locked ? 'Fixierung lösen' : 'Tag fixieren'}" title="${d.locked ? 'Fixierung lösen' : 'Fixieren'}">${icon(d.locked ? 'lock' : 'unlock')}</button>
+        <button class="iconbtn" data-act="wredo" data-n="${n}" ${d.locked ? 'disabled' : ''} aria-label="Neues Outfit für diesen Tag" title="Neu planen">${icon('refresh')}</button>
+        <button class="iconbtn ok ${d.worn ? 'on' : ''}" data-act="wworn" data-n="${n}" ${!d.outfit || d.worn ? 'disabled' : ''} aria-label="Als getragen markieren" title="Angezogen">${icon('check')}</button>
       </div>
     </section>`;
   }).join('');
-  return header + `
-    <button class="btn primary wide" data-act="wplan">${w.days.some((d) => d.outfit) ? '↻ Nicht fixierte Tage neu planen' : 'Woche planen'}</button>
-    <p class="muted small">Tippe auf ein Teil, um es zu tauschen. Fixierte Tage bleiben beim Neuplanen erhalten.</p>
+  return head + strip + `
+    <button class="btn primary block" data-act="wplan">${icon('sparkle')} ${w.days.some((d) => d.outfit) ? 'Offene Tage neu planen' : 'Woche planen'}</button>
+    <p class="fine">Tippe auf ein Teil, um es zu tauschen. Fixierte Tage <span style="white-space:nowrap">(${icon('lock', 'inline')})</span> bleiben beim Neuplanen erhalten.</p>
     ${days}`;
 }
 
@@ -733,23 +827,24 @@ function weekSportKits() {
 }
 
 function sportDayCard(d, n, kit, wx) {
-  return `<section class="day sportday ${d.worn ? 'worn' : ''}">
+  const open = state.openDay === n;
+  return `<section class="day sportday ${d.worn ? 'worn' : ''}" id="day-${n}">
       <div class="dayhead">
-        <b>${fmtDay(d.dateObj)}</b>
-        <span class="muted">${wx ? `${weatherIcon(wx.code)} ${Math.round(wx.tmin)}°/${Math.round(wx.tmax)}°` : ''}</span>
-        <select data-act="wocc" data-n="${n}">${Object.entries(ANLAESSE).map(([k, v]) => `<option value="${k}" ${k === d.occasion ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        <div class="dh-date"><b>${fmtDay(d.dateObj)}</b><span>${wx ? `${weatherIcon(wx.code)} ${Math.round(wx.tmin)}° bis ${Math.round(wx.tmax)}°` : ''}</span></div>
+        <select class="pillselect" data-act="wocc" data-n="${n}" aria-label="Anlass">${Object.entries(ANLAESSE).map(([k, v]) => `<option value="${k}" ${k === d.occasion ? 'selected' : ''}>${v}</option>`).join('')}</select>
       </div>
-      <div class="row sportform small">
-        <select data-act="wsart" data-n="${n}">${Object.entries(SPORTARTEN).map(([k, v]) => `<option value="${k}" ${k === d.sport.art ? 'selected' : ''}>${v}</option>`).join('')}</select>
-        <input type="time" data-act="wsstart" data-n="${n}" value="${d.sport.start}">
-        <select data-act="wsdauer" data-n="${n}">${[0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6].map((x) => `<option value="${x}" ${x === +d.sport.dauer ? 'selected' : ''}>${String(x).replace('.', ',')} h</option>`).join('')}</select>
+      <div class="sportform">
+        <select data-act="wsart" data-n="${n}" aria-label="Sportart">${Object.entries(SPORTARTEN).map(([k, v]) => `<option value="${k}" ${k === d.sport.art ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        <input type="time" data-act="wsstart" data-n="${n}" value="${d.sport.start}" aria-label="Startzeit">
+        <select data-act="wsdauer" data-n="${n}" aria-label="Dauer">${[0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6].map((x) => `<option value="${x}" ${x === +d.sport.dauer ? 'selected' : ''}>${String(x).replace('.', ',')} h</option>`).join('')}</select>
       </div>
       <p class="small">${condLine(kit, d.sport)}</p>
-      ${state.openDay === n ? kitList(kit) : `<div class="mini">${kit.items.map((i) => `<img class="mpimg" src="${imgUrl(i)}" alt="" title="${esc(i.bezeichnung)}">`).join('')}</div>
-        <p class="names small muted">${kit.lines.map((l) => (l.items.length ? l.items.map((i) => esc(i.bezeichnung)).join(' + ') : `<span class="missing">${esc(l.label)} ${l.dirty.length ? 'in der Wäsche' : 'fehlt'}</span>`)).join(' · ')}</p>`}
+      ${open ? kitList(kit) : `<div class="mini">${kit.items.map((i) => `<img class="mpimg" src="${imgUrl(i)}" alt="" title="${esc(i.bezeichnung)}">`).join('')}</div>
+        <p class="names">${kit.lines.map((l) => (l.items.length ? l.items.map((i) => esc(i.bezeichnung)).join(' + ') : `<span class="missing">${esc(l.label)} ${l.dirty.length ? 'in der Wäsche' : 'fehlt'}</span>`)).join(' · ')}</p>`}
       <div class="dayact">
-        <button class="mini-btn ${state.openDay === n ? 'on' : ''}" data-act="wopen" data-n="${n}">${state.openDay === n ? '▲ Zuklappen' : '📋 Details'}</button>
-        <button class="mini-btn" data-act="wworn" data-n="${n}" ${!kit.items.length || d.worn ? 'disabled' : ''}>${d.worn ? '✓ Getragen' : '✓ Angezogen'}</button>
+        <button class="pillbtn ${open ? 'on' : ''}" data-act="wopen" data-n="${n}">${icon(open ? 'chevron-up' : 'bike')} ${open ? 'Zuklappen' : 'Details'}</button>
+        <span class="spacer"></span>
+        <button class="iconbtn ok ${d.worn ? 'on' : ''}" data-act="wworn" data-n="${n}" ${!kit.items.length || d.worn ? 'disabled' : ''} aria-label="Als getragen markieren" title="Angezogen">${icon('check')}</button>
       </div>
     </section>`;
 }
@@ -768,84 +863,86 @@ async function planDays(onlyIndex = null) {
 }
 
 // ---------- Ansicht: Einstellungen ----------
+function sRow(id, ic, title, value, content) {
+  return `<details class="srow" data-sid="${id}" ${state.openSettings.has(id) ? 'open' : ''}>
+    <summary><span class="sri">${icon(ic)}</span><span class="srt">${title}</span><span class="srv">${value}</span>${icon('chevron-right', 'chev')}</summary>
+    <div class="src">${content}</div></details>`;
+}
+
 function renderSettings() {
   const s = state.settings;
   const WD = [1, 2, 3, 4, 5, 6, 0];
-  return `
-    <header class="top"><h1>Einstellungen</h1></header>
-    <section class="card">
-      <h2>KI-Erkennung (Claude)</h2>
-      <p class="muted small">Der Schlüssel wird nur auf diesem Gerät gespeichert und direkt an Anthropic gesendet. Einen Schlüssel bekommst du unter console.anthropic.com. Kosten: ca. 1–2 Cent pro Foto.</p>
-      <input type="password" id="apiKey" value="${esc(s.apiKey)}" placeholder="sk-ant-…" autocomplete="off">
-      <button class="btn small" data-act="saveKey">Speichern</button>
-    </section>
-    <section class="card">
-      <h2>Ort fürs Wetter</h2>
-      <p>${s.location ? `📍 ${esc(s.location.name)}` : '<span class="muted">Noch kein Ort</span>'}</p>
-      <div class="row"><input id="placeQ" placeholder="Stadt suchen, z. B. Bielefeld"><button class="btn small" data-act="searchPlace">Suchen</button></div>
-      ${state.placeResults.map((p, n) => `<button class="list-item" data-act="pickPlace" data-n="${n}">${esc(p.name)}</button>`).join('')}
-      <button class="btn ghost small" data-act="gps">Aktuellen Standort verwenden</button>
-    </section>
-    <section class="card">
-      <h2>Standard-Anlass je Wochentag</h2>
-      ${WD.map((d) => `<label class="row between">${['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][d]}
-        <select data-act="wdOcc" data-d="${d}">${Object.entries(ANLAESSE).map(([k, v]) => `<option value="${k}" ${s.weekdayOccasions[d] === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>`).join('')}
-    </section>
-    <section class="card">
-      <h2>Im Wochenplan mehrfach erlaubt</h2>
-      <div class="chips">${Object.entries(KATEGORIEN).map(([k, v]) => `<label class="chip check"><input type="checkbox" data-act="repeatCat" value="${k}" ${s.repeatCats.includes(k) ? 'checked' : ''}><span>${v}</span></label>`).join('')}</div>
-    </section>
-    <section class="card">
-      <h2>Sport-Modus</h2>
-      <p class="muted small">Voreinstellung für Sporttage. Die Kleidung richtet sich nach Temperatur, Wind und Regen während der Einheit. Auf dem Rad kühlt der Fahrtwind: Rennrad zählt 3 °C, Gravel 2 °C kälter, starker Wind (ab 25 km/h) weitere 2 °C.</p>
-      <label class="row between">Sportart<select data-act="setSport" data-f="art">${Object.entries(SPORTARTEN).map(([k, v]) => `<option value="${k}" ${s.sport.art === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-      <label class="row between">Startzeit<input type="time" data-act="setSport" data-f="start" value="${s.sport.start}"></label>
-      <label class="row between">Dauer<select data-act="setSport" data-f="dauer">${[0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6].map((x) => `<option value="${x}" ${x === +s.sport.dauer ? 'selected' : ''}>${String(x).replace('.', ',')} h</option>`).join('')}</select></label>
-    </section>
-    <section class="card">
-      <h2>Wäsche</h2>
-      <label class="row between">Wieder verfügbar nach<select data-act="laundryDays">${[1, 2, 3, 4, 5, 7].map((x) => `<option value="${x}" ${x === s.laundryDays ? 'selected' : ''}>${x} ${x === 1 ? 'Tag' : 'Tagen'}</option>`).join('')}</select></label>
-      <p class="muted small">Nach „Das ziehe ich an" automatisch in den Wäschekorb (Sport: Trikots, Hosen, Unterhemden, Linge, Buff und Mütze immer; Schuhe, Jacken und Handschuhe nicht):</p>
-      <div class="chips">${Object.entries(KATEGORIEN).map(([k, v]) => `<label class="chip check"><input type="checkbox" data-act="autoLaundry" value="${k}" ${s.autoLaundryCats.includes(k) ? 'checked' : ''}><span>${v}</span></label>`).join('')}</div>
-    </section>
-    <section class="card">
-      <h2>Gelernte Vorlieben</h2>
-      <p class="muted small">❤️ ${state.items.filter((i) => i.bewertung === 'liebling').length} Lieblingsteile · 👎 ${state.items.filter((i) => i.bewertung === 'ungern').length} ungern getragen<br>
-        ${state.prefs.favorites.length} Lieblingsoutfits · ${Object.values(state.prefs.ratings).filter((v) => v === 1).length} gute Outfits · ${state.prefs.blocked.length} ausgeschlossene Kombinationen<br>
-        ${Object.values(state.prefs.pairs).filter((v) => v <= -1).length} unpassende Paarungen · ${Object.keys(state.prefs.colorPairs).length} unpassende Farbkombinationen</p>
-      <p class="small">Wärmeempfinden: ${state.prefs.tempOffset ? `${state.prefs.tempOffset > 0 ? 'dir ist schnell warm' : 'du frierst eher'} – die App rechnet mit ${state.prefs.tempOffset > 0 ? '+' : ''}${state.prefs.tempOffset} °C <button class="btn ghost small" data-act="resetTemp">zurücksetzen</button>` : 'neutral'}</p>
-      <button class="btn ghost small" data-act="resetPrefs">Gelerntes zurücksetzen</button>
-    </section>
-    <section class="card">
-      <h2>Anprobe (Google Gemini)</h2>
-      <p class="muted small">Ein Ganzkörperfoto von dir: Die App zeigt damit, wie die vorgeschlagenen Outfits an dir aussehen. Tipps: gerade stehen, ganzer Körper von Kopf bis Fuß, eher eng anliegende Kleidung, ruhiger Hintergrund, gutes Licht.</p>
-      ${state.body ? `<img class="bodythumb" src="${bodyUrl()}" alt="Ganzkörperfoto" data-act="zoom">` : ''}
-      <div class="row">
-        <label class="btn small">${state.body ? 'Foto ändern' : '📷 Ganzkörperfoto wählen'}<input type="file" id="bodyInput" accept="image/*" hidden></label>
-        ${state.body ? '<button class="btn danger small" data-act="deleteBody">Foto löschen</button>' : ''}
-      </div>
-      <label class="small muted">Google-API-Schlüssel (aistudio.google.com → „Get API key")</label>
-      <input type="password" id="googleKey" value="${esc(s.googleKey)}" placeholder="AIza…" autocomplete="off">
-      <label class="small muted">Bildmodell</label>
-      <input id="imageModel" value="${esc(s.imageModel)}" placeholder="${DEFAULT_IMAGE_MODEL}" autocomplete="off" autocapitalize="off">
-      <button class="btn small" data-act="saveGoogle">Speichern</button>
-      <p class="muted small">Datenschutz: Für jede Anprobe gehen dein Foto und die Bilder der Kleidungsstücke an Google. Im kostenlosen Google-Kontingent darf Google eingesendete Daten zur Verbesserung seiner Dienste nutzen, mit Abrechnung (Bezahlkonto) nicht – siehe Google-Nutzungsbedingungen. Fertige Bilder werden nur auf diesem iPhone gespeichert (max. 40).</p>
-      <button class="btn ghost small" data-act="clearTryOns">Gespeicherte Anprobe-Bilder löschen</button>
-    </section>
-    <section class="card">
-      <h2>Beispiel-Schrank</h2>
-      <p class="muted small">Gezeichnete Beispielteile (Alltag, Büro, Festlich, Laufen, Rad) zum Ausprobieren. ${state.items.some((i) => i.demo) ? `Aktuell geladen: ${state.items.filter((i) => i.demo).length} Teile.` : ''}</p>
-      <div class="row"><button class="btn small" data-act="loadDemo">Laden</button>
-      <button class="btn danger small" data-act="removeDemo" ${state.items.some((i) => i.demo) ? '' : 'disabled'}>Entfernen</button></div>
-    </section>
-    <section class="card">
-      <h2>Sicherung</h2>
-      <p class="muted small">Alle Daten liegen nur auf diesem iPhone. Exportiere regelmäßig eine Sicherung (z. B. in iCloud Drive).</p>
-      <div class="row"><button class="btn small" data-act="export">Exportieren</button>
-      <label class="btn small">Importieren<input type="file" id="importInput" accept="application/json,.json" hidden></label></div>
-      <button class="btn danger small" data-act="wipe">Alle Daten löschen</button>
-    </section>
-    <p class="muted small center">Kleiderschrank · Version 1.4</p>`;
+  if (!s.location) state.openSettings.add('ort');
+  const occCount = {};
+  s.weekdayOccasions.forEach((o) => { occCount[o] = (occCount[o] || 0) + 1; });
+  const occSummary = Object.entries(occCount).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v}× ${ANLAESSE[k]}`).join(', ');
+  const nDemo = state.items.filter((i) => i.demo).length;
+  const tryStatus = state.body && s.googleKey ? 'bereit' : state.body ? 'Schlüssel fehlt' : s.googleKey ? 'Foto fehlt' : 'aus';
+  const P = state.prefs;
+  return pageHead('Kleiderschrank', 'Einstellungen') + `
+    <h3 class="glabel">Planung</h3>
+    <div class="sgroup">
+      ${sRow('ort', 'pin', 'Ort fürs Wetter', s.location ? esc(s.location.name.split(',')[0]) : 'nicht festgelegt', `
+        <p>${s.location ? `📍 ${esc(s.location.name)}` : '<span class="muted">Noch kein Ort – Outfits richten sich dann nur nach der Jahreszeit.</span>'}</p>
+        <div class="row"><input id="placeQ" placeholder="Stadt suchen, z. B. Bielefeld" enterkeyhint="search"><button class="btn sm" data-act="searchPlace">Suchen</button></div>
+        ${state.placeResults.map((p, n) => `<button class="list-item" data-act="pickPlace" data-n="${n}">${esc(p.name)}</button>`).join('')}
+        <button class="btn ghost small" data-act="gps">${icon('pin')} Aktuellen Standort verwenden</button>`)}
+      ${sRow('anlaesse', 'calendar', 'Anlass je Wochentag', occSummary, WD.map((d) => `<label class="row between">${WTL[d]}
+        <select data-act="wdOcc" data-d="${d}">${Object.entries(ANLAESSE).map(([k, v]) => `<option value="${k}" ${s.weekdayOccasions[d] === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>`).join(''))}
+      ${sRow('woche', 'repeat', 'Mehrfach pro Woche', `${s.repeatCats.length} Kategorien`, `
+        <p class="muted">Diese Kategorien dürfen im Wochenplan mehrmals vorkommen. Lieblingsteile dürfen immer bis zu ${MAX_FAV_PER_WEEK}×.</p>
+        <div class="chips">${Object.entries(KATEGORIEN).map(([k, v]) => `<label class="chip check"><input type="checkbox" data-act="repeatCat" value="${k}" ${s.repeatCats.includes(k) ? 'checked' : ''}><span>${v}</span></label>`).join('')}</div>`)}
+      ${sRow('waesche', 'basket', 'Wäsche', `${s.laundryDays} ${s.laundryDays === 1 ? 'Tag' : 'Tage'}`, `
+        <label class="row between">Wieder verfügbar nach<select data-act="laundryDays">${[1, 2, 3, 4, 5, 7].map((x) => `<option value="${x}" ${x === s.laundryDays ? 'selected' : ''}>${x} ${x === 1 ? 'Tag' : 'Tagen'}</option>`).join('')}</select></label>
+        <p class="muted">Nach „Anziehen" automatisch in den Wäschekorb. Sport: Trikots, Hosen, Unterhemden, Linge, Buff und Mütze immer – Schuhe, Jacken und Handschuhe nicht.</p>
+        <div class="chips">${Object.entries(KATEGORIEN).map(([k, v]) => `<label class="chip check"><input type="checkbox" data-act="autoLaundry" value="${k}" ${s.autoLaundryCats.includes(k) ? 'checked' : ''}><span>${v}</span></label>`).join('')}</div>`)}
+      ${sRow('sport', 'bike', 'Sport-Modus', `${SPORTARTEN[s.sport.art]} · ${s.sport.start}`, `
+        <p class="muted">Voreinstellung für Sporttage. Auf dem Rad kühlt der Fahrtwind: Rennrad zählt 3 °C, Gravel 2 °C kälter, starker Wind (ab 25 km/h) weitere 2 °C.</p>
+        <label class="row between">Sportart<select data-act="setSport" data-f="art">${Object.entries(SPORTARTEN).map(([k, v]) => `<option value="${k}" ${s.sport.art === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label class="row between">Startzeit<input type="time" data-act="setSport" data-f="start" value="${s.sport.start}"></label>
+        <label class="row between">Dauer<select data-act="setSport" data-f="dauer">${[0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6].map((x) => `<option value="${x}" ${x === +s.sport.dauer ? 'selected' : ''}>${String(x).replace('.', ',')} h</option>`).join('')}</select></label>`)}
+    </div>
+
+    <h3 class="glabel">KI & Anprobe</h3>
+    <div class="sgroup">
+      ${sRow('ki', 'wand', 'Automatische Erkennung', s.apiKey ? 'aktiv' : 'aus', `
+        <p class="muted">Claude erkennt Art, Farbe, Stil und Anlass aus dem Foto. Der Schlüssel bleibt auf diesem Gerät und geht direkt an Anthropic (console.anthropic.com). Ca. 1–2 Cent pro Foto.</p>
+        <input type="password" id="apiKey" value="${esc(s.apiKey)}" placeholder="sk-ant-…" autocomplete="off">
+        <button class="btn sm" data-act="saveKey">Speichern</button>`)}
+      ${sRow('anprobe', 'person', 'Virtuelle Anprobe', tryStatus, `
+        <p class="muted">Mit einem Ganzkörperfoto zeigt die App, wie die Outfits an dir aussehen. Tipps: gerade stehen, Kopf bis Fuß, eher eng anliegende Kleidung, ruhiger Hintergrund, gutes Licht.</p>
+        ${state.body ? `<img class="bodythumb" src="${bodyUrl()}" alt="Ganzkörperfoto" data-act="zoom">` : ''}
+        <div class="row">
+          <label class="btn sm">${icon('camera')} ${state.body ? 'Foto ändern' : 'Ganzkörperfoto wählen'}<input type="file" id="bodyInput" accept="image/*" hidden></label>
+          ${state.body ? '<button class="btn danger sm" data-act="deleteBody">Löschen</button>' : ''}
+        </div>
+        <label class="field">Google-API-Schlüssel (aistudio.google.com)<input type="password" id="googleKey" value="${esc(s.googleKey)}" placeholder="AIza…" autocomplete="off"></label>
+        <label class="field">Bildmodell<input id="imageModel" value="${esc(s.imageModel)}" placeholder="${DEFAULT_IMAGE_MODEL}" autocomplete="off" autocapitalize="off"></label>
+        <button class="btn sm" data-act="saveGoogle">Speichern</button>
+        <p class="fine">Datenschutz: Für jede Anprobe gehen dein Foto und die Kleidungsbilder an Google. Im kostenlosen Kontingent darf Google die Daten zur Verbesserung nutzen, mit Bezahlkonto nicht. Fertige Bilder bleiben auf dem iPhone (max. 40).</p>
+        <button class="btn ghost small" data-act="clearTryOns">Gespeicherte Anprobe-Bilder löschen</button>`)}
+    </div>
+
+    <h3 class="glabel">Daten</h3>
+    <div class="sgroup">
+      ${sRow('vorlieben', 'heart', 'Gelernte Vorlieben', `${state.items.filter((i) => i.bewertung === 'liebling').length} Lieblinge`, `
+        <div class="stat"><div><b>${state.items.filter((i) => i.bewertung === 'liebling').length}</b><span>Lieblingsteile</span></div>
+          <div><b>${P.favorites.length}</b><span>Lieblingsoutfits</span></div>
+          <div><b>${state.items.filter((i) => i.bewertung === 'ungern').length}</b><span>ungern getragen</span></div></div>
+        <p class="muted">${Object.values(P.ratings).filter((v) => v === 1).length} gute Outfits · ${P.blocked.length} ausgeschlossene Kombinationen · ${Object.values(P.pairs).filter((v) => v <= -1).length} unpassende Paarungen · ${Object.keys(P.colorPairs).length} unpassende Farbkombinationen</p>
+        <p>Wärmeempfinden: ${P.tempOffset ? `${P.tempOffset > 0 ? 'dir ist schnell warm' : 'du frierst eher'} (${P.tempOffset > 0 ? '+' : ''}${P.tempOffset} °C) <button class="btn ghost small" data-act="resetTemp">zurücksetzen</button>` : 'neutral'}</p>
+        <button class="btn danger sm" data-act="resetPrefs">Gelerntes zurücksetzen</button>`)}
+      ${sRow('demo', 'sparkle', 'Beispiel-Schrank', nDemo ? `${nDemo} Teile` : 'nicht geladen', `
+        <p class="muted">Gezeichnete Beispielteile (Alltag, Büro, Festlich, Laufen, Rad) zum Ausprobieren.</p>
+        <div class="row"><button class="btn sm" data-act="loadDemo">${nDemo ? 'Aktualisieren' : 'Laden'}</button>
+        <button class="btn danger sm" data-act="removeDemo" ${nDemo ? '' : 'disabled'}>Entfernen</button></div>`)}
+      ${sRow('backup', 'download', 'Sicherung', '', `
+        <p class="muted">Alle Daten liegen nur auf diesem iPhone. Exportiere regelmäßig eine Sicherung, z. B. in iCloud Drive.</p>
+        <div class="row"><button class="btn sm" data-act="export">Exportieren</button>
+        <label class="btn sm">Importieren<input type="file" id="importInput" accept="application/json,.json" hidden></label></div>
+        <button class="btn danger sm" data-act="wipe">Alle Daten löschen</button>`)}
+    </div>
+    <p class="fine center">Kleiderschrank · Version 2.0</p>`;
 }
 
 async function exportBackup() {
@@ -928,7 +1025,10 @@ document.addEventListener('click', async (ev) => {
   const n = el.dataset.n !== undefined ? +el.dataset.n : null;
   try {
     switch (act) {
-      case 'go': state.editing = null; go(el.dataset.view); break;
+      case 'go': state.editing = null; if (el.dataset.open) state.openSettings.add(el.dataset.open); go(el.dataset.view); break;
+      case 'obHide': state.settings.onboardingDone = true; await saveSettings(); toast('Ausgeblendet – alles findest du in den Einstellungen.'); render(); break;
+      case 'lookFlat': state.showFlat = !state.showFlat; render(); break;
+      case 'wjump': document.getElementById('day-' + n)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
       case 'filter': state.filter = el.dataset.k; render(); break;
       case 'edit': state.editing = { ...itemById(el.dataset.id) }; render(); break;
       case 'cancelEdit': state.editing = null; render(); break;
@@ -1056,7 +1156,8 @@ document.addEventListener('click', async (ev) => {
       case 'zoom': zoom(el.src); break;
       case 'tryon': {
         const slots = el.dataset.src === 'week' ? state.week.days[n].outfit.slots : state.outfit.current.slots;
-        if (!state.settings.googleKey) { toast('Bitte zuerst den Google-API-Schlüssel in den Einstellungen eintragen.'); break; }
+        if (!state.settings.googleKey) { toast('Bitte zuerst den Google-API-Schlüssel eintragen.'); state.openSettings.add('anprobe'); go('einstellungen'); break; }
+        state.showFlat = false;
         await runTryOn(slots);
         break;
       }
@@ -1128,6 +1229,12 @@ document.addEventListener('change', async (ev) => {
   } catch (e) { console.error(e); toast(e.message || 'Fehler'); }
 });
 
+// Aufgeklappte Einstellungsbereiche merken (toggle "blubbert" nicht, daher Capture)
+document.addEventListener('toggle', (ev) => {
+  const d = ev.target;
+  if (d.matches?.('details[data-sid]')) { if (d.open) state.openSettings.add(d.dataset.sid); else state.openSettings.delete(d.dataset.sid); }
+}, true);
+
 document.addEventListener('input', (ev) => {
   const el = ev.target;
   if (el.type === 'range' && el.dataset.out) {
@@ -1145,6 +1252,7 @@ async function init() {
   state.items = await db.allItems();
   state.week = await loadWeek();
   state.body = (await db.get('bodyPhoto')) || null;
+  if (state.items.length) state.view = 'outfit'; // Startseite: das heutige Outfit
   state.prefs = { ...emptyPrefs(), ...((await db.get('prefs')) || {}) };
   // Übernahme alter Favoriten (Daumen hoch) als Lieblingsoutfits
   state.prefs.favorites.forEach((f) => { if (!state.prefs.ratings[f.key]) state.prefs.ratings[f.key] = 2; });
@@ -1153,7 +1261,7 @@ async function init() {
     if (!state.settings.repeatCats.includes('unterteil')) state.settings.repeatCats.push('unterteil');
     state.settings.v13 = true; await saveSettings();
   }
-  render();
+  go(state.view);
   await loadForecast();
   render();
   if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
