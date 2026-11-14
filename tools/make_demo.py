@@ -80,6 +80,9 @@ def top(c, sleeves='long', neck='crew', hem=930, extra=None):
     if sleeves == 'long':
         body = [(425, 215), (290, 250), (215, 330), (150, 760), (240, 780), (300, 440), (300, hem),
                 (700, hem), (700, 440), (760, 780), (850, 760), (785, 330), (710, 250), (575, 215)]
+    elif sleeves == 'none':
+        body = [(425, 215), (330, 235), (330, 330), (300, 440), (300, hem),
+                (700, hem), (700, 440), (670, 330), (670, 235), (575, 215)]
     else:
         body = [(425, 215), (290, 250), (170, 420), (250, 500), (300, 440), (300, hem),
                 (700, hem), (700, 440), (750, 500), (830, 420), (710, 250), (575, 215)]
@@ -97,6 +100,12 @@ def top(c, sleeves='long', neck='crew', hem=930, extra=None):
     if neck == 'crew':
         cv.ell((425, 175, 575, 265), dark)
         cv.ell((440, 180, 560, 245), shade(c, 0.6))
+    elif neck == 'zip':
+        cv.rect((430, 175, 570, 250), shade(c, 0.85), 20)
+        cv.line([(500, 180), (500, hem - 10)], (210, 210, 210), 6)
+        cv.ell((490, 250, 510, 275), (220, 220, 220))
+        if extra and extra.get('band'):
+            cv.rect((300, 520, 700, 580), extra['band'])
     elif neck == 'v':
         cv.poly([(425, 215), (500, 360), (575, 215)], shade(c, 0.6))
         cv.line([(425, 215), (500, 360), (575, 215)], dark, 10)
@@ -247,6 +256,74 @@ def shoes(c, kind, accent=None):
     return cv
 
 
+# ---------- Sport-Extras ----------
+def bib(c, long=False):
+    cv = pants(c, 'tights' if long else 'shorts')
+    cv.line([(380, 250), (420, 60)], c, 34)
+    cv.line([(620, 250), (580, 60)], c, 34)
+    cv.rect((330, 180, 670, 255), shade(c, 1.5), 6)
+    return cv
+
+
+def tubes(c, length, label_color=None):
+    cv = Canvas()
+    for x in (300, 560):
+        cv.rect((x, 250, x + 140, 250 + length), c, 50)
+        cv.rect((x, 250, x + 140, 300), shade(c, 1.5), 30)
+        if label_color:
+            cv.rect((x + 40, 330, x + 100, 360), label_color, 6)
+    return cv
+
+
+def gloves(c, kind):
+    cv = Canvas()
+    dark = shade(c, 0.7)
+    for dx in (0, 300):
+        cv.rect((260 + dx, 600, 460 + dx, 900), c, 50)
+        cv.rect((250 + dx, 880, 470 + dx, 980), dark if kind != 'winter' else shade(c, 1.4), 30)
+        flen = 40 if kind == 'kurz' else 160
+        for i in range(4):
+            cv.rect((265 + dx + i * 50, 600 - flen, 305 + dx + i * 50, 640), c, 20)
+        cv.rect((200 + dx, 680, 250 + dx, 800), c, 25)
+        if kind == 'kurz':
+            cv.rect((285 + dx, 680, 435 + dx, 760), shade(c, 1.3), 20)
+    return cv
+
+
+def overshoe(c):
+    cv = Canvas()
+    cv.poly([(250, 420), (470, 420), (480, 760), (800, 820), (850, 920), (230, 930)], c, shade(c, 0.6), 4)
+    cv.line([(470, 440), (470, 760)], (160, 160, 160), 8)
+    cv.rect((260, 900, 840, 940), shade(c, 0.6), 14)
+    cv.line([(560, 790), (700, 830)], (220, 220, 220), 10)
+    return cv
+
+
+def capthin(c):
+    cv = Canvas()
+    cv.d.chord(R((250, 380, 750, 900)), 180, 360, fill=c)
+    cv.rect((250, 620, 750, 680), shade(c, 0.8), 20)
+    cv.line([(500, 390), (500, 640)], shade(c, 0.8), 4)
+    return cv
+
+
+def buff(c):
+    cv = Canvas()
+    cv.rect((340, 300, 660, 1000), c, 40)
+    for y in range(360, 980, 70):
+        cv.line([(350, y), (650, y + 30)], shade(c, 0.8), 10)
+    return cv
+
+
+def bikeshoe(c):
+    cv = shoes(c, 'derby')
+    for dx, dy in ((80, -60), (0, 0)):
+        cv.line([(400 + dx, 760 + dy), (560 + dx, 790 + dy)], (240, 240, 240), 14)
+        cv.line([(420 + dx, 820 + dy), (600 + dx, 850 + dy)], (240, 240, 240), 14)
+        cv.rect((200 + dx, 930 + dy, 820 + dx, 960 + dy), (20, 20, 20), 10)
+    return cv
+
+
 # ---------- Accessoires ----------
 def scarf(c):
     cv = Canvas()
@@ -292,28 +369,49 @@ ITEMS = [
     ('hemd-hellblau', lambda: top(hexrgb('#9cbde3'), 'long', 'shirt'), dict(kategorie='oberteil', bezeichnung='Hellblaues Oxford-Hemd', farben=[('Hellblau', '#9cbde3', False)], formalitaet=4, waerme=3, saisons=ALL, anlaesse=['buero', 'ausgehen'])),
     ('hemd-weiss', lambda: top(hexrgb('#fafaf8'), 'long', 'shirt'), dict(kategorie='oberteil', bezeichnung='Weißes Businesshemd', farben=[('Weiß', '#fafaf8', True)], formalitaet=5, waerme=3, saisons=ALL, anlaesse=['buero', 'festlich', 'ausgehen'])),
     ('polo-salbei', lambda: top(hexrgb('#8fa882'), 'short', 'polo'), dict(kategorie='oberteil', bezeichnung='Salbeigrünes Poloshirt', farben=[('Salbeigrün', '#8fa882', False)], formalitaet=3, waerme=2, saisons=['fruehling', 'sommer'], anlaesse=['freizeit', 'buero'])),
-    ('laufshirt', lambda: top(hexrgb('#ff7a1a'), 'short', 'crew', extra={'reflect': True}), dict(kategorie='oberteil', bezeichnung='Orangefarbenes Laufshirt', farben=[('Neonorange', '#ff7a1a', False)], formalitaet=1, waerme=1, saisons=ALL, anlaesse=['sport'])),
-    ('laufshirt-lang', lambda: top(hexrgb('#2b3a55'), 'long', 'crew', extra={'reflect': True}), dict(kategorie='oberteil', bezeichnung='Langarm-Funktionsshirt', farben=[('Dunkelblau', '#2b3a55', True)], formalitaet=1, waerme=3, saisons=NOT_SUMMER, anlaesse=['sport'])),
+    ('laufshirt', lambda: top(hexrgb('#ff7a1a'), 'short', 'crew', extra={'reflect': True}), dict(kategorie='oberteil', bezeichnung='Orangefarbenes Laufshirt', farben=[('Neonorange', '#ff7a1a', False)], formalitaet=1, waerme=1, saisons=ALL, anlaesse=['sport'], sportteil='oben_kurz', sportarten=['laufen'])),
+    ('laufshirt-lang', lambda: top(hexrgb('#2b3a55'), 'long', 'crew', extra={'reflect': True}), dict(kategorie='oberteil', bezeichnung='Langarm-Funktionsshirt', farben=[('Dunkelblau', '#2b3a55', True)], formalitaet=1, waerme=3, saisons=NOT_SUMMER, anlaesse=['sport'], sportteil='oben_lang', sportarten=['laufen'])),
     ('pulli-grau', lambda: top(hexrgb('#8a8a8f'), 'long', 'crew'), dict(kategorie='schicht', bezeichnung='Grauer Strickpullover', farben=[('Grau', '#8a8a8f', True)], formalitaet=3, waerme=4, saisons=['herbst', 'winter'], anlaesse=['buero', 'freizeit'])),
     ('pulli-v-navy', lambda: top(hexrgb('#25304d'), 'long', 'v'), dict(kategorie='schicht', bezeichnung='Navy Pullover mit V-Ausschnitt', farben=[('Navy', '#25304d', True)], formalitaet=4, waerme=3, saisons=NOT_SUMMER, anlaesse=['buero', 'ausgehen'])),
-    ('hoodie-oliv', lambda: top(hexrgb('#6b6f3a'), 'long', 'hood'), dict(kategorie='schicht', bezeichnung='Olivgrüner Hoodie', farben=[('Oliv', '#6b6f3a', True)], formalitaet=2, waerme=4, saisons=NOT_SUMMER, anlaesse=['freizeit', 'sport'])),
+    ('hoodie-oliv', lambda: top(hexrgb('#6b6f3a'), 'long', 'hood'), dict(kategorie='schicht', bezeichnung='Olivgrüner Hoodie', farben=[('Oliv', '#6b6f3a', True)], formalitaet=2, waerme=4, saisons=NOT_SUMMER, anlaesse=['freizeit'])),
     ('cardigan-bordeaux', lambda: top(hexrgb('#7a2433'), 'long', 'cardigan'), dict(kategorie='schicht', bezeichnung='Bordeauxrote Strickjacke', farben=[('Bordeaux', '#7a2433', False)], formalitaet=3, waerme=3, saisons=['herbst', 'winter'], anlaesse=['buero', 'freizeit', 'ausgehen'])),
     ('sakko-navy', lambda: top(hexrgb('#232c44'), 'long', 'blazer', hem=980), dict(kategorie='schicht', bezeichnung='Navy Sakko', farben=[('Navy', '#232c44', True)], formalitaet=5, waerme=3, saisons=NOT_SUMMER, anlaesse=['buero', 'festlich', 'ausgehen'])),
     ('jeans', lambda: pants(hexrgb('#34507e'), 'jeans'), dict(kategorie='unterteil', bezeichnung='Dunkle Jeans', farben=[('Jeansblau', '#34507e', True)], formalitaet=2, waerme=3, saisons=ALL, anlaesse=['freizeit', 'buero', 'ausgehen'])),
     ('chino-beige', lambda: pants(hexrgb('#c9b38a'), 'chino'), dict(kategorie='unterteil', bezeichnung='Beige Chino', farben=[('Beige', '#c9b38a', True)], formalitaet=3, waerme=3, saisons=['fruehling', 'sommer', 'herbst'], anlaesse=['buero', 'freizeit', 'ausgehen'])),
     ('anzughose-grau', lambda: pants(hexrgb('#55585e'), 'anzug'), dict(kategorie='unterteil', bezeichnung='Graue Anzughose', farben=[('Anthrazit', '#55585e', True)], formalitaet=5, waerme=3, saisons=ALL, anlaesse=['buero', 'festlich'])),
     ('shorts-khaki', lambda: pants(hexrgb('#b8a785'), 'shorts'), dict(kategorie='unterteil', bezeichnung='Khaki Shorts', farben=[('Khaki', '#b8a785', True)], formalitaet=2, waerme=1, saisons=['sommer'], anlaesse=['freizeit'])),
-    ('lauftights', lambda: pants(hexrgb('#1c1c20'), 'tights'), dict(kategorie='unterteil', bezeichnung='Schwarze Lauftights', farben=[('Schwarz', '#1c1c20', True)], formalitaet=1, waerme=3, saisons=ALL, anlaesse=['sport'])),
+    ('lauftights', lambda: pants(hexrgb('#1c1c20'), 'tights'), dict(kategorie='unterteil', bezeichnung='Schwarze Lauftights', farben=[('Schwarz', '#1c1c20', True)], formalitaet=1, waerme=3, saisons=ALL, anlaesse=['sport'], sportteil='unten_lang', sportarten=['laufen'])),
     ('mantel-camel', lambda: coat(hexrgb('#b98d5a'), 'mantel'), dict(kategorie='jacke', bezeichnung='Camel Wollmantel', farben=[('Camel', '#b98d5a', True)], formalitaet=4, waerme=5, saisons=['herbst', 'winter'], anlaesse=['buero', 'ausgehen', 'festlich'])),
-    ('regenjacke-gelb', lambda: coat(hexrgb('#f0c030'), 'regen'), dict(kategorie='jacke', bezeichnung='Gelbe Regenjacke', farben=[('Gelb', '#f0c030', False)], formalitaet=2, waerme=2, saisons=['fruehling', 'sommer', 'herbst'], anlaesse=['freizeit', 'sport'], regenfest=True)),
+    ('regenjacke-gelb', lambda: coat(hexrgb('#f0c030'), 'regen'), dict(kategorie='jacke', bezeichnung='Gelbe Regenjacke', farben=[('Gelb', '#f0c030', False)], formalitaet=2, waerme=2, saisons=['fruehling', 'sommer', 'herbst'], anlaesse=['freizeit'], regenfest=True)),
     ('daunenjacke', lambda: coat(hexrgb('#2a2a2e'), 'daune'), dict(kategorie='jacke', bezeichnung='Schwarze Daunenjacke', farben=[('Schwarz', '#2a2a2e', True)], formalitaet=2, waerme=5, saisons=['winter'], anlaesse=['freizeit', 'buero'], regenfest=True)),
     ('sneaker-weiss', lambda: shoes(hexrgb('#f3f3f0'), 'sneaker'), dict(kategorie='schuhe', bezeichnung='Weiße Sneaker', farben=[('Weiß', '#f3f3f0', True)], formalitaet=2, waerme=2, saisons=['fruehling', 'sommer', 'herbst'], anlaesse=['freizeit', 'buero', 'ausgehen'])),
     ('boots-braun', lambda: shoes(hexrgb('#6e4529'), 'boots'), dict(kategorie='schuhe', bezeichnung='Braune Lederboots', farben=[('Braun', '#6e4529', True)], formalitaet=3, waerme=4, saisons=['herbst', 'winter'], anlaesse=['buero', 'freizeit', 'ausgehen'], regenfest=True)),
     ('derby-schwarz', lambda: shoes(hexrgb('#1e1d1f'), 'derby'), dict(kategorie='schuhe', bezeichnung='Schwarze Lederschuhe', farben=[('Schwarz', '#1e1d1f', True)], formalitaet=5, waerme=3, saisons=ALL, anlaesse=['buero', 'festlich', 'ausgehen'])),
-    ('laufschuhe', lambda: shoes(hexrgb('#2f6fd6'), 'lauf', hexrgb('#c8ff3c')), dict(kategorie='schuhe', bezeichnung='Blaue Laufschuhe', farben=[('Blau', '#2f6fd6', False), ('Neongelb', '#c8ff3c', False)], formalitaet=1, waerme=2, saisons=ALL, anlaesse=['sport'])),
+    ('laufschuhe', lambda: shoes(hexrgb('#2f6fd6'), 'lauf', hexrgb('#c8ff3c')), dict(kategorie='schuhe', bezeichnung='Blaue Laufschuhe', farben=[('Blau', '#2f6fd6', False), ('Neongelb', '#c8ff3c', False)], formalitaet=1, waerme=2, saisons=ALL, anlaesse=['sport'], sportteil='schuhe', sportarten=['laufen'])),
     ('schal-rot', lambda: scarf(hexrgb('#b02a30')), dict(kategorie='accessoire', bezeichnung='Roter Wollschal', farben=[('Rot', '#b02a30', False)], formalitaet=3, waerme=5, saisons=['herbst', 'winter'], anlaesse=['freizeit', 'buero', 'ausgehen'])),
-    ('muetze-grau', lambda: beanie(hexrgb('#9a9a9e')), dict(kategorie='accessoire', bezeichnung='Graue Strickmütze', farben=[('Grau', '#9a9a9e', True)], formalitaet=2, waerme=5, saisons=['winter'], anlaesse=['freizeit', 'sport'])),
+    ('muetze-grau', lambda: beanie(hexrgb('#9a9a9e')), dict(kategorie='accessoire', bezeichnung='Graue Strickmütze', farben=[('Grau', '#9a9a9e', True)], formalitaet=2, waerme=5, saisons=['winter'], anlaesse=['freizeit', 'sport'], sportteil='kopf_warm', sportarten=['laufen'])),
     ('guertel-braun', lambda: belt(hexrgb('#6a4128')), dict(kategorie='accessoire', bezeichnung='Brauner Ledergürtel', farben=[('Braun', '#6a4128', True)], formalitaet=4, waerme=3, saisons=ALL, anlaesse=['buero', 'festlich', 'ausgehen'])),
+    # --- Laufen & Rad ---
+    ('laufshorts', lambda: pants(hexrgb('#2d4f9e'), 'shorts'), dict(kategorie='unterteil', bezeichnung='Blaue Laufshorts', farben=[('Blau', '#2d4f9e', False)], formalitaet=1, waerme=1, saisons=ALL, anlaesse=['sport'], sportteil='unten_kurz', sportarten=['laufen'])),
+    ('laufjacke-wind', lambda: top(hexrgb('#c9ced6'), 'long', 'zip'), dict(kategorie='jacke', bezeichnung='Leichte Windjacke', farben=[('Hellgrau', '#c9ced6', True)], formalitaet=1, waerme=2, saisons=ALL, anlaesse=['sport'], sportteil='windjacke', sportarten=['laufen', 'rad'])),
+    ('funktionsunterhemd', lambda: top(hexrgb('#f4f4f4'), 'none', 'crew'), dict(kategorie='oberteil', bezeichnung='Funktionsunterhemd', farben=[('Weiß', '#f4f4f4', True)], formalitaet=1, waerme=2, saisons=ALL, anlaesse=['sport'], sportteil='unterhemd', sportarten=['laufen', 'rad'])),
+    ('radtrikot-kurz', lambda: top(hexrgb('#1f8a8a'), 'short', 'zip', extra={'band': hexrgb('#f2f2f2')}), dict(kategorie='oberteil', bezeichnung='Petrol Radtrikot kurzarm', farben=[('Petrol', '#1f8a8a', False)], formalitaet=1, waerme=1, saisons=['fruehling', 'sommer', 'herbst'], anlaesse=['sport'], sportteil='oben_kurz', sportarten=['rad'])),
+    ('radtrikot-lang', lambda: top(hexrgb('#8c1d2c'), 'long', 'zip', extra={'band': hexrgb('#1e1e22')}), dict(kategorie='oberteil', bezeichnung='Bordeaux Langarmtrikot', farben=[('Bordeaux', '#8c1d2c', False)], formalitaet=1, waerme=3, saisons=NOT_SUMMER, anlaesse=['sport'], sportteil='oben_lang', sportarten=['rad'])),
+    ('radweste', lambda: top(hexrgb('#c6e83a'), 'none', 'zip'), dict(kategorie='jacke', bezeichnung='Neongelbe Windweste', farben=[('Neongelb', '#c6e83a', False)], formalitaet=1, waerme=1, saisons=ALL, anlaesse=['sport'], sportteil='weste', sportarten=['rad', 'laufen'])),
+    ('radjacke-winter', lambda: top(hexrgb('#1d1d22'), 'long', 'zip', extra={'band': hexrgb('#ff6a1a')}), dict(kategorie='jacke', bezeichnung='Winter-Radjacke', farben=[('Schwarz', '#1d1d22', True), ('Orange', '#ff6a1a', False)], formalitaet=1, waerme=5, saisons=['winter'], anlaesse=['sport'], sportteil='thermojacke', sportarten=['rad'])),
+    ('radjacke-regen', lambda: top(hexrgb('#c4262e'), 'long', 'zip'), dict(kategorie='jacke', bezeichnung='Rote Regenjacke (Rad)', farben=[('Rot', '#c4262e', False)], formalitaet=1, waerme=2, saisons=ALL, anlaesse=['sport'], sportteil='regenjacke', sportarten=['rad', 'laufen'], regenfest=True)),
+    ('radhose-kurz', lambda: bib(hexrgb('#18181c')), dict(kategorie='unterteil', bezeichnung='Trägerhose kurz', farben=[('Schwarz', '#18181c', True)], formalitaet=1, waerme=1, saisons=['fruehling', 'sommer', 'herbst'], anlaesse=['sport'], sportteil='unten_kurz', sportarten=['rad'])),
+    ('radhose-lang', lambda: bib(hexrgb('#25252b'), True), dict(kategorie='unterteil', bezeichnung='Winter-Trägerhose lang', farben=[('Schwarz', '#25252b', True)], formalitaet=1, waerme=4, saisons=['winter', 'herbst'], anlaesse=['sport'], sportteil='unten_lang', sportarten=['rad'])),
+    ('armlinge', lambda: tubes(hexrgb('#1c1c20'), 520, hexrgb('#c6e83a')), dict(kategorie='accessoire', bezeichnung='Armlinge', farben=[('Schwarz', '#1c1c20', True)], formalitaet=1, waerme=3, saisons=NOT_SUMMER, anlaesse=['sport'], sportteil='armlinge', sportarten=['rad', 'laufen'])),
+    ('knielinge', lambda: tubes(hexrgb('#1c1c20'), 380), dict(kategorie='accessoire', bezeichnung='Knielinge', farben=[('Schwarz', '#1c1c20', True)], formalitaet=1, waerme=3, saisons=NOT_SUMMER, anlaesse=['sport'], sportteil='knielinge', sportarten=['rad'])),
+    ('beinlinge', lambda: tubes(hexrgb('#1c1c20'), 780), dict(kategorie='accessoire', bezeichnung='Beinlinge', farben=[('Schwarz', '#1c1c20', True)], formalitaet=1, waerme=3, saisons=NOT_SUMMER, anlaesse=['sport'], sportteil='beinlinge', sportarten=['rad'])),
+    ('handschuhe-kurz', lambda: gloves(hexrgb('#2a2a30'), 'kurz'), dict(kategorie='accessoire', bezeichnung='Kurzfinger-Handschuhe', farben=[('Schwarz', '#2a2a30', True)], formalitaet=1, waerme=1, saisons=['fruehling', 'sommer', 'herbst'], anlaesse=['sport'], sportteil='handschuhe_kurz', sportarten=['rad'])),
+    ('handschuhe-lang', lambda: gloves(hexrgb('#3a4250'), 'lang'), dict(kategorie='accessoire', bezeichnung='Langfinger-Handschuhe', farben=[('Grau', '#3a4250', True)], formalitaet=1, waerme=3, saisons=NOT_SUMMER, anlaesse=['sport'], sportteil='handschuhe_lang', sportarten=['rad', 'laufen'])),
+    ('handschuhe-winter', lambda: gloves(hexrgb('#18181c'), 'winter'), dict(kategorie='accessoire', bezeichnung='Winterhandschuhe', farben=[('Schwarz', '#18181c', True)], formalitaet=1, waerme=5, saisons=['winter'], anlaesse=['sport'], sportteil='handschuhe_winter', sportarten=['rad', 'laufen'])),
+    ('ueberschuhe', lambda: overshoe(hexrgb('#202024')), dict(kategorie='accessoire', bezeichnung='Neopren-Überschuhe', farben=[('Schwarz', '#202024', True)], formalitaet=1, waerme=5, saisons=['herbst', 'winter'], anlaesse=['sport'], sportteil='ueberschuhe', sportarten=['rad'], regenfest=True)),
+    ('unterhelmmuetze', lambda: capthin(hexrgb('#3b3f48')), dict(kategorie='accessoire', bezeichnung='Unterhelmmütze', farben=[('Grau', '#3b3f48', True)], formalitaet=1, waerme=3, saisons=NOT_SUMMER, anlaesse=['sport'], sportteil='kopf_duenn', sportarten=['rad', 'laufen'])),
+    ('buff', lambda: buff(hexrgb('#2f5d8a')), dict(kategorie='accessoire', bezeichnung='Multifunktionstuch', farben=[('Blau', '#2f5d8a', False)], formalitaet=1, waerme=3, saisons=NOT_SUMMER, anlaesse=['sport'], sportteil='halstuch', sportarten=['rad', 'laufen'])),
+    ('radschuhe', lambda: bikeshoe(hexrgb('#f0f0f0')), dict(kategorie='schuhe', bezeichnung='Rennradschuhe', farben=[('Weiß', '#f0f0f0', True)], formalitaet=1, waerme=2, saisons=ALL, anlaesse=['sport'], sportteil='schuhe', sportarten=['rad'])),
 ]
 
 
@@ -327,6 +425,7 @@ def main():
             'farben': [{'name': n, 'hex': h, 'neutral': nt} for n, h, nt in m['farben']],
             'muster': m.get('muster', 'uni'), 'formalitaet': m['formalitaet'], 'waerme': m['waerme'],
             'saisons': m['saisons'], 'anlaesse': m['anlaesse'], 'regenfest': m.get('regenfest', False),
+            'sportteil': m.get('sportteil', 'keins'), 'sportarten': m.get('sportarten', []),
         })
     with open(os.path.join(OUT, 'demo.json'), 'w', encoding='utf-8') as f:
         json.dump(meta, f, ensure_ascii=False, indent=1)

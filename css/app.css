@@ -199,3 +199,36 @@ h2.sub { margin: 18px 0 6px; }
 #zoom { position: fixed; inset: 0; background: rgba(0,0,0,.88); z-index: 30; display: flex; align-items: center; justify-content: center; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
 #zoom[hidden] { display: none; }
 #zoom img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+/* Wäsche */
+.tile { position: relative; }
+.tile.laundry img { opacity: .45; filter: grayscale(.6); }
+.tile .badge { position: absolute; top: 6px; right: 6px; font-style: normal; background: var(--card); border-radius: 999px; padding: 2px 6px; font-size: 14px; }
+.note .btn { margin-top: 8px; }
+img.dim { opacity: .4; }
+
+/* Bewertung & Favoriten */
+.feedback { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.note.dislike .chips { margin: 8px 0; }
+.note.dislike .row { display: flex; gap: 8px; align-items: center; }
+.fav { background: var(--card); border-radius: var(--radius); padding: 8px 10px; margin: 8px 0; }
+.fav .mini { margin: 0 0 6px; }
+.fav .mini img, .mpimg { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; background: var(--chip); flex: 0 0 auto; }
+.favact { display: flex; gap: 6px; align-items: center; }
+.favact .muted { flex: 1; }
+
+/* Sport */
+.sportform { display: flex; gap: 10px; align-items: flex-end; margin: 6px 0; }
+.sportform label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 4px; flex: 1; }
+.sportform input, .sportform select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); font-size: 16px; }
+.day .sportform select, .day .sportform input { padding: 6px 8px; font-size: 14px; width: auto; flex: 1; }
+.kit { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.kit li { background: var(--card); border-radius: 12px; padding: 8px 10px; }
+.day .kit li { background: var(--bg); }
+.kit small { color: var(--muted); font-size: 12px; }
+.kitrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; align-items: center; }
+.kititem { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+.kititem img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; background: var(--chip); }
+.missing { color: var(--danger); font-size: 13px; }
+.sportday { border-left: 4px solid var(--accent); }
+.sportbox { border: 1px dashed var(--line); border-radius: 12px; padding: 10px; }

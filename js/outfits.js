@@ -1,5 +1,6 @@
 // Outfit-Logik: Welche Teile passen zusammen – zu Wetter, Anlass, Farbe und Abwechslung?
 import { hexToHsl, isNeutral, hueDistance } from './colors.js';
+import { inLaundry } from './sport.js';
 
 export const KATEGORIEN = {
   oberteil: 'Oberteil',
@@ -106,16 +107,34 @@ export function scoreOutfit(outfit, ctx) {
   const patterned = items.filter((i) => i.muster === 'gemustert' && i.kategorie !== 'accessoire').length;
   if (patterned > 1) s -= 12 * (patterned - 1);
 
+  // Deine Bewertungen: gemochte Paare geben Pluspunkte, abgelehnte deutliche Abzüge
+  if (ctx.prefs) {
+    let like = 0, dislike = 0;
+    for (let a = 0; a < items.length; a++) {
+      for (let b = a + 1; b < items.length; b++) {
+        const v = ctx.prefs.pairs[pairKey(items[a].id, items[b].id)] || 0;
+        if (v > 0) like += Math.min(v, 3); else dislike -= v;
+      }
+    }
+    s += 3 * like - 12 * dislike;
+    if (ctx.prefs.favKeys?.has(outfitKey(outfit))) { s += 10; reasons.unshift('⭐ Einer deiner Favoriten'); }
+    else if (like >= 3) reasons.unshift('👍 Kombinationen, die dir gefallen haben');
+  }
+
   return { score: Math.round(s), reasons };
 }
 
 // ---------- Kontext & Kandidaten ----------
-export function makeContext({ items, date, weather, occasion, exclude = new Set(), softExclude = new Set(), reuse = new Map() }) {
+export function pairKey(a, b) { return a < b ? a + '|' + b : b + '|' + a; }
+
+export function makeContext({ items, date, weather, occasion, exclude = new Set(), softExclude = new Set(), reuse = new Map(), prefs = null, laundryDays = 3 }) {
+  const laundry = items.filter((i) => inLaundry(i, date, laundryDays));
+  items = items.filter((i) => !laundry.includes(i)); // was in der Wäsche liegt, wird nicht vorgeschlagen
   const temp = dayTemp(weather, date);
   const rain = !!weather && (weather.rain ?? 0) >= 50;
   const isSport = occasion === 'sport';
   const ctx = {
-    items, date, weather, occasion, exclude, softExclude, reuse, temp, rain,
+    items, date, weather, occasion, exclude, softExclude, reuse, prefs, laundry, temp, rain,
     season: seasonOf(date),
     needSchicht: isSport ? temp < 8 : temp < 15,
     needJacke: temp < 13 || rain,
@@ -164,7 +183,7 @@ export function suggestOutfit(ctx, avoidKeys = new Set(), tries = 500) {
     const o = randomOutfit(ctx);
     if (!o) break;
     const key = outfitKey(o);
-    if (seen.has(key) || avoidKeys.has(key)) continue;
+    if (seen.has(key) || avoidKeys.has(key) || ctx.prefs?.blocked.has(key)) continue;
     const { score, reasons } = scoreOutfit(o, ctx);
     seen.set(key, { slots: o, key, score: score + Math.random() * 4, reasons });
   }
@@ -204,6 +223,7 @@ export function missingHints(ctx) {
   if (!(p.oberteil.length && p.unterteil.length) && !p.kleid.length) hints.push('Mindestens ein Oberteil + eine Hose/Rock oder ein Kleid');
   if (!p.schuhe.length) hints.push('Schuhe');
   if (ctx.needJacke && !p.jacke.length) hints.push('Eine Jacke (es wird kühl oder nass)');
+  if (hints.length && ctx.laundry?.length) hints.push(`${ctx.laundry.length} Teil(e) liegen gerade in der Wäsche`);
   return hints;
 }
 
@@ -211,7 +231,7 @@ export function missingHints(ctx) {
  * Wochenplan: Tag für Tag ein Outfit, ohne dass Kleidungsstücke doppelt vorkommen.
  * Kategorien in repeatCats (z. B. Schuhe, Jacken) dürfen mehrfach getragen werden.
  */
-export function planWeek(items, days, repeatCats) {
+export function planWeek(items, days, repeatCats, extras = {}) {
   const used = new Set();
   const counts = new Map(); // wie oft jedes Teil in dieser Woche schon vorkommt
   const add = (i) => { used.add(i.id); counts.set(i.id, (counts.get(i.id) || 0) + 1); };
@@ -220,13 +240,20 @@ export function planWeek(items, days, repeatCats) {
   const repeatIds = new Set(items.filter((i) => repeatCats.includes(i.kategorie)).map((i) => i.id));
   return days.map((d) => {
     if (d.locked && d.outfit) return d;
+    if (d.occasion === 'sport') return { ...d, outfit: null, hints: [] }; // Sporttage plant der Sport-Modus
     const hard = new Set([...used].filter((id) => !repeatIds.has(id)));
     const soft = new Set([...used].filter((id) => repeatIds.has(id)));
-    const ctx = makeContext({ items, date: d.dateObj, weather: d.weather, occasion: d.occasion, exclude: hard, softExclude: soft });
+    const ctx = makeContext({ ...extras, items, date: d.dateObj, weather: d.weather, occasion: d.occasion, exclude: hard, softExclude: soft });
     let outfit = suggestOutfit(ctx);
     if (!outfit) {
-      // Schrank zu klein: Wiederholungen erlauben, aber möglichst vermeiden
-      const ctx2 = makeContext({ items, date: d.dateObj, weather: d.weather, occasion: d.occasion, softExclude: soft, reuse: new Map([...counts].filter(([id]) => hard.has(id))) });
+      // Schrank zu klein: nur in den Kategorien wiederholen, die wirklich ausgegangen sind
+      const emptyCats = Object.keys(ctx.pools).filter((c) => !ctx.pools[c].length);
+      const reuseIds = new Set([...hard].filter((id) => emptyCats.includes(items.find((i) => i.id === id)?.kategorie)));
+      const ctx2 = makeContext({
+        ...extras, items, date: d.dateObj, weather: d.weather, occasion: d.occasion, softExclude: soft,
+        exclude: new Set([...hard].filter((id) => !reuseIds.has(id))),
+        reuse: new Map([...counts].filter(([id]) => reuseIds.has(id))),
+      });
       outfit = suggestOutfit(ctx2, keys) || suggestOutfit(ctx2);
       if (!outfit) return { ...d, outfit: null, hints: missingHints(ctx2) };
     }

@@ -2,10 +2,11 @@
 import { db, uid } from './db.js';
 import { analyzeClothing } from './ai.js';
 import { getForecast, searchPlace, weatherIcon } from './weather.js';
+import { SPORTARTEN, SPORTTEILE, SPORT_WASH, activityConditions, sportKit, inLaundry } from './sport.js';
 import { generateTryOn, getCachedTryOn, tryOnKey, clearTryOnCache, DEFAULT_IMAGE_MODEL } from './tryon.js';
 import {
   KATEGORIEN, ANLAESSE, SAISONS, SLOT_ORDER,
-  makeContext, suggestOutfit, swapSlot, planWeek, missingHints, dayTemp,
+  makeContext, suggestOutfit, swapSlot, planWeek, missingHints, dayTemp, pairKey, outfitKey,
 } from './outfits.js';
 
 // ---------- Hilfsfunktionen ----------
@@ -61,9 +62,12 @@ const DEFAULT_SETTINGS = {
   apiKey: '',
   location: null,
   weekdayOccasions: ['freizeit', 'buero', 'buero', 'buero', 'buero', 'buero', 'freizeit'], // So..Sa
-  repeatCats: ['schuhe', 'jacke', 'accessoire'],
+  repeatCats: ['unterteil', 'schuhe', 'jacke', 'accessoire'],
   googleKey: '',
   imageModel: DEFAULT_IMAGE_MODEL,
+  laundryDays: 3,                       // nach so vielen Tagen ist ein Teil wieder sauber
+  autoLaundryCats: ['oberteil'],        // diese Kategorien wandern nach dem Tragen automatisch in die Wäsche
+  sport: { art: 'rennrad', start: '09:00', dauer: 2 },
 };
 const state = {
   view: 'schrank',
@@ -73,13 +77,23 @@ const state = {
   filter: 'alle',
   editing: null,       // Kleidungsstück im Editor
   analyzing: false,
-  outfit: { date: ymd(today()), occasion: null, current: null, seen: new Set(), ctx: null },
+  outfit: { date: ymd(today()), occasion: null, current: null, seen: new Set(), ctx: null, sport: null, dislike: null },
+  prefs: { pairs: {}, blocked: [], favorites: [] }, // Daumen hoch/runter
   week: null,
   placeResults: [],
   body: null,          // Ganzkörperfoto { blob, version }
 };
 
 async function saveSettings() { await db.set('settings', state.settings); }
+async function savePrefs() { await db.set('prefs', state.prefs); }
+function extras() {
+  return {
+    laundryDays: state.settings.laundryDays,
+    prefs: { pairs: state.prefs.pairs, blocked: new Set(state.prefs.blocked), favKeys: new Set(state.prefs.favorites.map((f) => f.key)) },
+  };
+}
+const laundryNow = (i) => inLaundry(i, today(), state.settings.laundryDays);
+const sportOnly = (i) => (i.anlaesse || []).length > 0 && i.anlaesse.every((a) => a === 'sport');
 const itemById = (id) => state.items.find((i) => i.id === id);
 const weatherFor = (dateStr) => state.forecast?.[dateStr] || null;
 const defaultOccasion = (d) => state.settings.weekdayOccasions[d.getDay()] || 'freizeit';
@@ -119,21 +133,24 @@ function renderSchrank() {
   const counts = {};
   state.items.forEach((i) => { counts[i.kategorie] = (counts[i.kategorie] || 0) + 1; });
   const list = state.items
-    .filter((i) => state.filter === 'alle' || i.kategorie === state.filter)
+    .filter((i) => state.filter === 'alle' || (state.filter === 'waesche' ? laundryNow(i) : i.kategorie === state.filter))
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  const chips = [['alle', `Alle (${state.items.length})`], ...Object.entries(KATEGORIEN).filter(([k]) => counts[k]).map(([k, v]) => [k, `${v} (${counts[k]})`])];
+  const nLaundry = state.items.filter(laundryNow).length;
+  const chips = [['alle', `Alle (${state.items.length})`], ...(nLaundry || state.filter === 'waesche' ? [['waesche', `🧺 Wäsche (${nLaundry})`]] : []),
+    ...Object.entries(KATEGORIEN).filter(([k]) => counts[k]).map(([k, v]) => [k, `${v} (${counts[k]})`])];
   return `
     <header class="top"><h1>Kleiderschrank</h1></header>
     ${!state.settings.apiKey ? `<div class="note">Für die automatische Erkennung von Fotos bitte in den <a href="#" data-act="go" data-view="einstellungen">Einstellungen</a> einen Claude-API-Schlüssel hinterlegen. Ohne Schlüssel kannst du die Angaben selbst eintragen.</div>` : ''}
     <div class="chips scroll">${chips.map(([k, l]) => `<button class="chip ${state.filter === k ? 'on' : ''}" data-act="filter" data-k="${k}">${esc(l)}</button>`).join('')}</div>
+    ${state.filter === 'waesche' ? `<div class="note">Teile im Wäschekorb werden nicht vorgeschlagen. Nach ${state.settings.laundryDays} Tagen sind sie automatisch wieder verfügbar. ${nLaundry ? '<button class="btn small" data-act="allClean">✓ Alles wieder sauber</button>' : ''}</div>` : ''}
     ${list.length ? `<div class="grid">${list.map((i) => `
-      <button class="tile" data-act="edit" data-id="${i.id}">
-        <img src="${imgUrl(i)}" alt="" loading="lazy">
+      <button class="tile ${laundryNow(i) ? 'laundry' : ''}" data-act="edit" data-id="${i.id}">
+        <img src="${imgUrl(i)}" alt="" loading="lazy">${laundryNow(i) ? '<em class="badge">🧺</em>' : ''}
         <span>${esc(i.bezeichnung || KATEGORIEN[i.kategorie])}</span>
       </button>`).join('')}</div>`
     : `<div class="empty"><div class="big">👕</div><p>Noch nichts im Schrank.<br>Tippe auf <b>+</b> und fotografiere dein erstes Kleidungsstück.</p><p class="muted">Tipp: Kleidung flach auf einen ruhigen Untergrund legen oder auf einen Bügel hängen.</p>
       <button class="btn" data-act="loadDemo">Beispiel-Schrank laden</button>
-      <p class="muted small">27 gezeichnete Beispielteile zum Ausprobieren – ohne Fotos, ohne API-Kosten. Lassen sich jederzeit wieder entfernen.</p></div>`}
+      <p class="muted small">Gezeichnete Beispielteile (Alltag, Büro, Laufen, Rad) zum Ausprobieren – ohne Fotos, ohne API-Kosten. Lassen sich jederzeit wieder entfernen.</p></div>`}
     <label class="fab" aria-label="Kleidungsstück hinzufügen">+
       <input id="photoInput" type="file" accept="image/*" multiple hidden>
     </label>`;
@@ -170,7 +187,7 @@ function newItem(image) {
     id: uid(), createdAt: Date.now(), image,
     kategorie: 'oberteil', bezeichnung: '', farben: [{ name: 'Schwarz', hex: '#222222', neutral: true }],
     muster: 'uni', formalitaet: 2, waerme: 3, saisons: Object.keys(SAISONS), anlaesse: ['freizeit'],
-    regenfest: false, lastWorn: null, wornCount: 0,
+    regenfest: false, lastWorn: null, wornCount: 0, sportteil: 'keins', sportarten: [], laundrySince: null,
   };
 }
 
@@ -185,6 +202,8 @@ function normalize(ai) {
     saisons: (ai.saisons || []).filter((s) => SAISONS[s]),
     anlaesse: (ai.anlaesse || []).filter((a) => ANLAESSE[a]),
     regenfest: !!ai.regenfest,
+    sportteil: SPORTTEILE[ai.sportteil] ? ai.sportteil : 'keins',
+    sportarten: (ai.sportarten || []).filter((a) => a === 'laufen' || a === 'rad'),
   };
 }
 
@@ -234,6 +253,11 @@ function renderEditor() {
       <fieldset><legend>Anlässe</legend><div class="chips">${multi('anlaesse', ANLAESSE, i.anlaesse || [])}</div></fieldset>
       <fieldset><legend>Jahreszeiten</legend><div class="chips">${multi('saisons', SAISONS, i.saisons || [])}</div></fieldset>
       <label class="row"><input type="checkbox" name="regenfest" ${i.regenfest ? 'checked' : ''}> Regenfest</label>
+      <fieldset class="sportbox"><legend>Sportbekleidung (für den Sport-Modus)</legend>
+        <label>Funktion<select name="sportteil">${opt(SPORTTEILE, i.sportteil || 'keins')}</select></label>
+        <div class="chips">${multi('sportarten', { laufen: 'Laufen', rad: 'Radfahren' }, i.sportarten || [])}</div>
+      </fieldset>
+      ${!i.isNew ? `<button type="button" class="btn small" data-act="toggleLaundry">${laundryNow(i) ? '✓ Wieder sauber' : '🧺 In die Wäsche'}</button>` : ''}
       ${!i.isNew ? `<p class="muted">Getragen: ${i.wornCount || 0}× ${i.lastWorn ? `· zuletzt ${fmtDay(parseYmd(i.lastWorn))}` : ''}</p>` : ''}
       <div class="actions">
         <button type="submit" class="btn primary" ${state.analyzing ? 'disabled' : ''}>Speichern</button>
@@ -264,6 +288,8 @@ function readForm() {
   i.anlaesse = fd.getAll('anlaesse');
   i.saisons = fd.getAll('saisons');
   i.regenfest = fd.get('regenfest') === 'on';
+  i.sportteil = fd.get('sportteil') || 'keins';
+  i.sportarten = fd.getAll('sportarten');
   i.farben = [...form.querySelectorAll('.colorrow')].map((r) => ({
     hex: r.querySelector('[name=hex]').value,
     name: r.querySelector('[name=cname]').value.trim(),
@@ -375,12 +401,14 @@ function renderOutfit() {
   if (!o.occasion) o.occasion = defaultOccasion(d);
   const t = ymd(today()), m = ymd(addDays(today(), 1));
   let body = '';
+  if (o.occasion === 'sport' && state.items.length) return outfitHeader(o, t, m) + renderSportOutfit(o);
   if (!state.items.length) body = '<div class="empty"><p>Fotografiere zuerst ein paar Teile im Schrank.</p></div>';
   else if (o.current) {
     body = `${tryOnBlock(o.current.slots, 'data-src="outfit"')}
       <h2 class="sub">Die Teile im Einzelnen</h2>
       ${itemList(o.current.slots, 'swap')}
       <ul class="reasons">${o.current.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
+      ${feedbackBlock(o)}
       <div class="actions">
         <button class="btn" data-act="suggest">🔀 Anderer Vorschlag</button>
         <button class="btn primary" data-act="wearToday">✓ Das ziehe ich an</button>
@@ -388,6 +416,14 @@ function renderOutfit() {
   } else if (o.hints) {
     body = `<div class="note">Für ein Outfit fehlt noch: <ul>${o.hints.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>`;
   }
+  return outfitHeader(o, t, m) + `
+    ${weatherBlock(o.date)}
+    ${!o.current && state.items.length ? '<button class="btn primary wide" data-act="suggest">Outfit vorschlagen</button>' : ''}
+    ${body}
+    ${favoritesBlock(o)}`;
+}
+
+function outfitHeader(o, t, m) {
   return `
     <header class="top"><h1>Outfit</h1></header>
     <div class="chips">
@@ -395,16 +431,134 @@ function renderOutfit() {
       <button class="chip ${o.date === m ? 'on' : ''}" data-act="odate" data-d="${m}">Morgen</button>
       <input type="date" class="chip" id="odate" value="${o.date}">
     </div>
-    <div class="chips">${Object.entries(ANLAESSE).map(([k, v]) => `<button class="chip ${o.occasion === k ? 'on' : ''}" data-act="oocc" data-k="${k}">${v}</button>`).join('')}</div>
-    ${weatherBlock(o.date)}
-    ${!o.current && state.items.length ? '<button class="btn primary wide" data-act="suggest">Outfit vorschlagen</button>' : ''}
-    ${body}`;
+    <div class="chips">${Object.entries(ANLAESSE).map(([k, v]) => `<button class="chip ${o.occasion === k ? 'on' : ''}" data-act="oocc" data-k="${k}">${k === 'sport' ? '🏃 ' : ''}${v}</button>`).join('')}</div>`;
+}
+
+// ---------- Daumen hoch / runter ----------
+function feedbackBlock(o) {
+  const fav = state.prefs.favorites.some((f) => f.key === o.current.key);
+  const items = SLOT_ORDER.filter((k) => o.current.slots[k]).map((k) => o.current.slots[k]);
+  return `<div class="feedback">
+      <span class="muted small">Wie gefällt dir das Outfit?</span>
+      <button class="mini-btn ${fav ? 'on' : ''}" data-act="like">👍 ${fav ? 'Favorit' : 'Gefällt mir'}</button>
+      <button class="mini-btn ${o.dislike ? 'on' : ''}" data-act="dislike">👎 Passt nicht</button>
+    </div>
+    ${o.dislike ? `<div class="note dislike"><b>Was passt nicht?</b> Tippe die Teile an, die nicht zum Rest passen. Die App merkt sich das und kombiniert sie künftig seltener. Ohne Auswahl wird nur genau diese Kombination nicht mehr vorgeschlagen.
+      <div class="chips">${items.map((i) => `<button class="chip ${o.dislike.has(i.id) ? 'on' : ''}" data-act="disToggle" data-id="${i.id}">${esc(i.bezeichnung)}</button>`).join('')}</div>
+      <div class="row"><button class="btn small primary" data-act="disApply">Merken & neuer Vorschlag</button><button class="btn ghost small" data-act="disCancel">Abbrechen</button></div></div>` : ''}`;
+}
+
+function favSlots(f) {
+  const slots = {};
+  for (const [k, id] of Object.entries(f.ids)) { const it = itemById(id); if (!it) return null; slots[k] = it; }
+  return slots;
+}
+
+function favoritesBlock(o) {
+  const favs = state.prefs.favorites.map((f) => ({ f, slots: favSlots(f) })).filter((x) => x.slots)
+    .sort((a, b) => (b.f.occasion === o.occasion) - (a.f.occasion === o.occasion) || b.f.at - a.f.at);
+  if (!favs.length) return '';
+  return `<h2 class="sub">⭐ Deine Favoriten</h2>
+    ${favs.slice(0, 10).map(({ f, slots }) => `<div class="fav">
+      <div class="mini">${SLOT_ORDER.filter((k) => slots[k]).map((k) => `<img src="${imgUrl(slots[k])}" alt="" title="${esc(slots[k].bezeichnung)}" class="${laundryNow(slots[k]) ? 'dim' : ''}">`).join('')}</div>
+      <div class="favact"><span class="muted small">${esc(ANLAESSE[f.occasion] || '')}</span>
+        <button class="mini-btn" data-act="favUse" data-k="${esc(f.key)}">Anziehen</button>
+        <button class="mini-btn" data-act="favDel" data-k="${esc(f.key)}" aria-label="Favorit entfernen">✕</button></div>
+    </div>`).join('')}`;
+}
+
+async function likeCurrent() {
+  const o = state.outfit;
+  const items = Object.values(o.current.slots);
+  const idx = state.prefs.favorites.findIndex((f) => f.key === o.current.key);
+  const delta = idx >= 0 ? -1 : 1; // zweites Tippen nimmt das Like zurück
+  for (let a = 0; a < items.length; a++) {
+    for (let b = a + 1; b < items.length; b++) {
+      const k = pairKey(items[a].id, items[b].id);
+      state.prefs.pairs[k] = (state.prefs.pairs[k] || 0) + delta;
+      if (!state.prefs.pairs[k]) delete state.prefs.pairs[k];
+    }
+  }
+  if (idx >= 0) state.prefs.favorites.splice(idx, 1);
+  else state.prefs.favorites.push({ key: o.current.key, occasion: o.occasion, at: Date.now(), ids: Object.fromEntries(Object.entries(o.current.slots).map(([k, v]) => [k, v.id])) });
+  await savePrefs();
+  toast(idx >= 0 ? 'Aus den Favoriten entfernt.' : '⭐ Als Favorit gemerkt – ähnliche Kombinationen kommen öfter.');
+  render();
+}
+
+async function applyDislike() {
+  const o = state.outfit;
+  const items = Object.values(o.current.slots);
+  const bad = o.dislike;
+  for (const x of items.filter((i) => bad.has(i.id))) {
+    for (const y of items.filter((i) => !bad.has(i.id))) {
+      const k = pairKey(x.id, y.id);
+      state.prefs.pairs[k] = (state.prefs.pairs[k] || 0) - 1;
+    }
+  }
+  state.prefs.blocked.push(o.current.key);
+  if (state.prefs.blocked.length > 300) state.prefs.blocked.shift();
+  state.prefs.favorites = state.prefs.favorites.filter((f) => f.key !== o.current.key);
+  await savePrefs();
+  o.dislike = null;
+  toast(bad.size ? 'Gemerkt – diese Kombination kommt seltener.' : 'Diese Kombination wird nicht mehr vorgeschlagen.');
+  suggest();
+}
+
+// ---------- Sport-Modus ----------
+const addHours = (start, h) => { const [hh, mm] = start.split(':').map(Number); const t = hh * 60 + mm + Math.round(h * 60); return `${String(Math.floor(t / 60) % 24).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
+
+function sportConditions(dateStr, sport) {
+  const c = activityConditions(weatherFor(dateStr), sport.start, sport.dauer);
+  if (c) return c;
+  const t = dayTemp(null, parseYmd(dateStr));
+  return { tmin: t, tmax: t, wind: 10, rain: 0, estimated: true };
+}
+
+function sportKitFor(dateStr, sport, avoid) {
+  const cond = sportConditions(dateStr, sport);
+  return { cond, ...sportKit({ items: state.items, art: sport.art, cond, date: parseYmd(dateStr), laundryDays: state.settings.laundryDays, avoid }) };
+}
+
+function kitList(kit) {
+  return `<ul class="kit">${kit.lines.map((l) => `<li>
+      <small>${esc(l.label)}</small>
+      <div class="kitrow">${l.items.map((i) => `<span class="kititem"><img src="${imgUrl(i)}" alt="">${esc(i.bezeichnung)}</span>`).join('')}
+      ${l.dirty.length ? `<span class="missing">🧺 in der Wäsche: ${esc(l.dirty.map((i) => i.bezeichnung).join(', '))}</span>` : ''}
+      ${l.missing.length ? `<span class="missing">fehlt im Schrank: ${esc(l.missing.join(', '))}</span>` : ''}</div>
+    </li>`).join('')}</ul>`;
+}
+
+function condLine(kit, sport) {
+  const c = kit.cond;
+  return `${sport.start}–${addHours(sport.start, sport.dauer)} Uhr: <b>${Math.round(c.tmin)}${Math.round(c.tmax) !== Math.round(c.tmin) ? `–${Math.round(c.tmax)}` : ''} °C</b> · Wind bis ${Math.round(c.wind)} km/h · Regen ${Math.round(c.rain)} %
+    <br><span class="muted">Gefühlt ${kit.E} °C${sport.art === 'laufen' ? '' : ' mit Fahrtwind'}${c.estimated ? ' · ohne Vorhersage geschätzt' : ''}</span>`;
+}
+
+function renderSportOutfit(o) {
+  if (!o.sport) o.sport = { ...state.settings.sport };
+  const sp = o.sport;
+  const kit = sportKitFor(o.date, sp, new Set());
+  const DAUER = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6];
+  return `
+    <div class="chips">${Object.entries(SPORTARTEN).map(([k, v]) => `<button class="chip ${sp.art === k ? 'on' : ''}" data-act="sart" data-k="${k}">${v}</button>`).join('')}</div>
+    <div class="row sportform">
+      <label>Start<input type="time" id="sstart" value="${sp.start}"></label>
+      <label>Dauer<select id="sdauer">${DAUER.map((d) => `<option value="${d}" ${d === +sp.dauer ? 'selected' : ''}>${String(d).replace('.', ',')} h</option>`).join('')}</select></label>
+    </div>
+    <div class="weather"><span class="wi">${sp.art === 'laufen' ? '🏃' : '🚴'}</span><span>${condLine(kit, sp)}</span></div>
+    <h2 class="sub">Das ziehst du an</h2>
+    ${kitList(kit)}
+    ${kit.notes.length ? `<ul class="reasons">${kit.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
+    <div class="actions"><button class="btn primary" data-act="sportWear" ${kit.items.length ? '' : 'disabled'}>✓ Das ziehe ich an</button></div>
+    <p class="muted small">Tipp: Sportteile bekommen im Schrank unter „Sportbekleidung" ihre Funktion (z. B. Armlinge, Weste). Nur so findet der Sport-Modus sie.</p>`;
 }
 
 function suggest() {
   const o = state.outfit;
   const d = parseYmd(o.date);
-  o.ctx = makeContext({ items: state.items, date: d, weather: weatherFor(o.date), occasion: o.occasion });
+  o.ctx = makeContext({ ...extras(), items: state.items, date: d, weather: weatherFor(o.date), occasion: o.occasion });
+  o.dislike = null;
   if (o.current) o.seen.add(o.current.key);
   let next = suggestOutfit(o.ctx, o.seen);
   if (!next && o.seen.size) { o.seen.clear(); next = suggestOutfit(o.ctx, o.seen); toast('Alle Kombinationen gezeigt – es geht von vorne los.'); }
@@ -414,12 +568,17 @@ function suggest() {
 }
 
 async function markWorn(slots, dateStr, occasion) {
+  let washed = 0;
   for (const it of Object.values(slots)) {
     if (!it.lastWorn || it.lastWorn < dateStr) it.lastWorn = dateStr;
     it.wornCount = (it.wornCount || 0) + 1;
+    // Sportsachen und die eingestellten Kategorien wandern nach dem Tragen in den Wäschekorb
+    const wash = sportOnly(it) ? SPORT_WASH.includes(it.sportteil) : state.settings.autoLaundryCats.includes(it.kategorie);
+    if (wash) { it.laundrySince = dateStr; washed++; }
     await db.putItem(it);
   }
   await db.putHistory({ id: uid(), date: dateStr, occasion, itemIds: Object.values(slots).map((i) => i.id) });
+  return washed;
 }
 
 // ---------- Ansicht: Wochenplan ----------
@@ -429,6 +588,7 @@ async function loadWeek() {
   return {
     start: saved.start,
     days: saved.days.map((d) => {
+      if (d.occasion === 'sport') return { ...d, dateObj: parseYmd(d.date), outfit: null };
       const slots = {};
       for (const [k, id] of Object.entries(d.ids || {})) { const it = itemById(id); if (it) slots[k] = it; }
       return { ...d, dateObj: parseYmd(d.date), outfit: Object.keys(slots).length ? { slots, reasons: d.reasons || [], key: '' } : null };
@@ -441,7 +601,7 @@ async function saveWeek() {
   await db.set('week', {
     start: w.start,
     days: w.days.map((d) => ({
-      date: d.date, occasion: d.occasion, locked: !!d.locked, worn: !!d.worn, reasons: d.outfit?.reasons || [], hints: d.hints || [],
+      date: d.date, occasion: d.occasion, locked: !!d.locked, worn: !!d.worn, reasons: d.outfit?.reasons || [], hints: d.hints || [], sport: d.sport || null,
       ids: d.outfit ? Object.fromEntries(Object.entries(d.outfit.slots).map(([k, v]) => [k, v.id])) : {},
     })),
   });
@@ -475,8 +635,10 @@ function renderWoche() {
     </div>`;
   if (!state.items.length) return header + '<div class="empty"><p>Fotografiere zuerst ein paar Teile im Schrank.</p></div>';
   if (!w) return header + '<p class="muted">Wähle den Starttag. Danach bekommst du für 7 Tage je ein Outfit – passend zu Wetter und Anlass, ohne doppelte Teile.</p>';
+  const kits = weekSportKits();
   const days = w.days.map((d, n) => {
     const wx = weatherFor(d.date);
+    if (kits[n]) return sportDayCard(d, n, kits[n], wx);
     return `<section class="day ${d.locked ? 'locked' : ''} ${d.worn ? 'worn' : ''}">
       <div class="dayhead">
         <b>${fmtDay(d.dateObj)}</b>
@@ -501,6 +663,40 @@ function renderWoche() {
     ${days}`;
 }
 
+// Sporttage der Woche: Kleidung je Einheit, möglichst nicht dieselben Teile an mehreren Tagen
+function weekSportKits() {
+  const avoid = new Set();
+  return state.week.days.map((d) => {
+    if (d.occasion !== 'sport') return null;
+    if (!d.sport) d.sport = { ...state.settings.sport };
+    const kit = sportKitFor(d.date, d.sport, avoid);
+    kit.items.forEach((i) => avoid.add(i.id));
+    return kit;
+  });
+}
+
+function sportDayCard(d, n, kit, wx) {
+  return `<section class="day sportday ${d.worn ? 'worn' : ''}">
+      <div class="dayhead">
+        <b>${fmtDay(d.dateObj)}</b>
+        <span class="muted">${wx ? `${weatherIcon(wx.code)} ${Math.round(wx.tmin)}°/${Math.round(wx.tmax)}°` : ''}</span>
+        <select data-act="wocc" data-n="${n}">${Object.entries(ANLAESSE).map(([k, v]) => `<option value="${k}" ${k === d.occasion ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      </div>
+      <div class="row sportform small">
+        <select data-act="wsart" data-n="${n}">${Object.entries(SPORTARTEN).map(([k, v]) => `<option value="${k}" ${k === d.sport.art ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        <input type="time" data-act="wsstart" data-n="${n}" value="${d.sport.start}">
+        <select data-act="wsdauer" data-n="${n}">${[0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6].map((x) => `<option value="${x}" ${x === +d.sport.dauer ? 'selected' : ''}>${String(x).replace('.', ',')} h</option>`).join('')}</select>
+      </div>
+      <p class="small">${condLine(kit, d.sport)}</p>
+      ${state.openDay === n ? kitList(kit) : `<div class="mini">${kit.items.map((i) => `<img class="mpimg" src="${imgUrl(i)}" alt="" title="${esc(i.bezeichnung)}">`).join('')}</div>
+        <p class="names small muted">${kit.lines.map((l) => (l.items.length ? l.items.map((i) => esc(i.bezeichnung)).join(' + ') : `<span class="missing">${esc(l.label)} ${l.dirty.length ? 'in der Wäsche' : 'fehlt'}</span>`)).join(' · ')}</p>`}
+      <div class="dayact">
+        <button class="mini-btn ${state.openDay === n ? 'on' : ''}" data-act="wopen" data-n="${n}">${state.openDay === n ? '▲ Zuklappen' : '📋 Details'}</button>
+        <button class="mini-btn" data-act="wworn" data-n="${n}" ${!kit.items.length || d.worn ? 'disabled' : ''}>${d.worn ? '✓ Getragen' : '✓ Angezogen'}</button>
+      </div>
+    </section>`;
+}
+
 async function planDays(onlyIndex = null) {
   const w = state.week;
   let days = w.days.map((d) => ({ ...d, weather: weatherFor(d.date) }));
@@ -508,7 +704,7 @@ async function planDays(onlyIndex = null) {
     // Nur einen Tag neu: alle anderen gelten vorübergehend als fixiert
     days = days.map((d, n) => (n === onlyIndex ? { ...d, locked: false, outfit: null } : { ...d, locked: true }));
   }
-  const planned = planWeek(state.items, days, state.settings.repeatCats);
+  const planned = planWeek(state.items, days, state.settings.repeatCats, extras());
   w.days = planned.map((d, n) => (onlyIndex !== null && n !== onlyIndex ? { ...w.days[n] } : d));
   await saveWeek();
   render();
@@ -543,6 +739,24 @@ function renderSettings() {
       <div class="chips">${Object.entries(KATEGORIEN).map(([k, v]) => `<label class="chip check"><input type="checkbox" data-act="repeatCat" value="${k}" ${s.repeatCats.includes(k) ? 'checked' : ''}><span>${v}</span></label>`).join('')}</div>
     </section>
     <section class="card">
+      <h2>Sport-Modus</h2>
+      <p class="muted small">Voreinstellung für Sporttage. Die Kleidung richtet sich nach Temperatur, Wind und Regen während der Einheit. Auf dem Rad kühlt der Fahrtwind: Rennrad zählt 3 °C, Gravel 2 °C kälter, starker Wind (ab 25 km/h) weitere 2 °C.</p>
+      <label class="row between">Sportart<select data-act="setSport" data-f="art">${Object.entries(SPORTARTEN).map(([k, v]) => `<option value="${k}" ${s.sport.art === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="row between">Startzeit<input type="time" data-act="setSport" data-f="start" value="${s.sport.start}"></label>
+      <label class="row between">Dauer<select data-act="setSport" data-f="dauer">${[0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6].map((x) => `<option value="${x}" ${x === +s.sport.dauer ? 'selected' : ''}>${String(x).replace('.', ',')} h</option>`).join('')}</select></label>
+    </section>
+    <section class="card">
+      <h2>Wäsche</h2>
+      <label class="row between">Wieder verfügbar nach<select data-act="laundryDays">${[1, 2, 3, 4, 5, 7].map((x) => `<option value="${x}" ${x === s.laundryDays ? 'selected' : ''}>${x} ${x === 1 ? 'Tag' : 'Tagen'}</option>`).join('')}</select></label>
+      <p class="muted small">Nach „Das ziehe ich an" automatisch in den Wäschekorb (Sport: Trikots, Hosen, Unterhemden, Linge, Buff und Mütze immer; Schuhe, Jacken und Handschuhe nicht):</p>
+      <div class="chips">${Object.entries(KATEGORIEN).map(([k, v]) => `<label class="chip check"><input type="checkbox" data-act="autoLaundry" value="${k}" ${s.autoLaundryCats.includes(k) ? 'checked' : ''}><span>${v}</span></label>`).join('')}</div>
+    </section>
+    <section class="card">
+      <h2>Deine Bewertungen</h2>
+      <p class="muted small">${state.prefs.favorites.length} Favoriten · ${Object.values(state.prefs.pairs).filter((v) => v < 0).length} abgelehnte Paarungen · ${state.prefs.blocked.length} ausgeschlossene Kombinationen</p>
+      <button class="btn ghost small" data-act="resetPrefs">Bewertungen zurücksetzen</button>
+    </section>
+    <section class="card">
       <h2>Anprobe (Google Gemini)</h2>
       <p class="muted small">Ein Ganzkörperfoto von dir: Die App zeigt damit, wie die vorgeschlagenen Outfits an dir aussehen. Tipps: gerade stehen, ganzer Körper von Kopf bis Fuß, eher eng anliegende Kleidung, ruhiger Hintergrund, gutes Licht.</p>
       ${state.body ? `<img class="bodythumb" src="${bodyUrl()}" alt="Ganzkörperfoto" data-act="zoom">` : ''}
@@ -560,7 +774,7 @@ function renderSettings() {
     </section>
     <section class="card">
       <h2>Beispiel-Schrank</h2>
-      <p class="muted small">27 gezeichnete Beispielteile (Alltag, Büro, Festlich, Sport) zum Ausprobieren. ${state.items.some((i) => i.demo) ? `Aktuell geladen: ${state.items.filter((i) => i.demo).length} Teile.` : ''}</p>
+      <p class="muted small">Gezeichnete Beispielteile (Alltag, Büro, Festlich, Laufen, Rad) zum Ausprobieren. ${state.items.some((i) => i.demo) ? `Aktuell geladen: ${state.items.filter((i) => i.demo).length} Teile.` : ''}</p>
       <div class="row"><button class="btn small" data-act="loadDemo">Laden</button>
       <button class="btn danger small" data-act="removeDemo" ${state.items.some((i) => i.demo) ? '' : 'disabled'}>Entfernen</button></div>
     </section>
@@ -571,7 +785,7 @@ function renderSettings() {
       <label class="btn small">Importieren<input type="file" id="importInput" accept="application/json,.json" hidden></label></div>
       <button class="btn danger small" data-act="wipe">Alle Daten löschen</button>
     </section>
-    <p class="muted small center">Kleiderschrank · Version 1.2</p>`;
+    <p class="muted small center">Kleiderschrank · Version 1.3</p>`;
 }
 
 async function exportBackup() {
@@ -579,7 +793,7 @@ async function exportBackup() {
   const items = [];
   for (const it of state.items) items.push({ ...it, image: it.image ? await toDataUrl(it.image) : null });
   const { apiKey, googleKey, ...settings } = state.settings; // Schlüssel nicht mit exportieren
-  const data = { app: 'kleiderschrank', version: 1, exportedAt: new Date().toISOString(), settings, items, history: await db.allHistory() };
+  const data = { app: 'kleiderschrank', version: 1, exportedAt: new Date().toISOString(), settings, items, history: await db.allHistory(), prefs: state.prefs };
   const file = new File([JSON.stringify(data)], `kleiderschrank-${ymd(new Date())}.json`, { type: 'application/json' });
   if (navigator.canShare?.({ files: [file] })) {
     try { await navigator.share({ files: [file], title: 'Kleiderschrank-Sicherung' }); return; } catch (e) { if (e.name === 'AbortError') return; }
@@ -601,6 +815,7 @@ async function importBackup(file) {
     n++;
   }
   for (const h of data.history || []) await db.putHistory(h);
+  if (data.prefs) { state.prefs = data.prefs; await savePrefs(); }
   if (data.settings) { state.settings = { ...state.settings, ...data.settings, apiKey: state.settings.apiKey, googleKey: state.settings.googleKey }; await saveSettings(); }
   state.items = await db.allItems();
   toast(`${n} Teile importiert.`);
@@ -668,9 +883,50 @@ document.addEventListener('click', async (ev) => {
         if (next) { o.current = next; render(); } else toast('Keine Alternative in dieser Kategorie.');
         break;
       }
-      case 'wearToday':
-        await markWorn(state.outfit.current.slots, state.outfit.date, state.outfit.occasion);
-        toast('Viel Spaß! Eingetragen als getragen.'); break;
+      case 'wearToday': {
+        const washed = await markWorn(state.outfit.current.slots, state.outfit.date, state.outfit.occasion);
+        toast(`Viel Spaß! Eingetragen als getragen${washed ? ` · ${washed} Teil(e) danach im Wäschekorb` : ''}.`); break;
+      }
+      case 'sportWear': {
+        const o = state.outfit;
+        const washed = await markWorn({ ...sportKitFor(o.date, o.sport, new Set()).items }, o.date, 'sport');
+        toast(`Gute Einheit! ${washed} Teil(e) danach im Wäschekorb.`); render(); break;
+      }
+      case 'sart': state.outfit.sport.art = el.dataset.k; render(); break;
+      case 'like': await likeCurrent(); break;
+      case 'dislike': state.outfit.dislike = state.outfit.dislike ? null : new Set(); render(); break;
+      case 'disToggle': { const s = state.outfit.dislike; if (s.has(el.dataset.id)) s.delete(el.dataset.id); else s.add(el.dataset.id); render(); break; }
+      case 'disCancel': state.outfit.dislike = null; render(); break;
+      case 'disApply': await applyDislike(); break;
+      case 'favUse': {
+        const o = state.outfit;
+        const f = state.prefs.favorites.find((x) => x.key === el.dataset.k);
+        const slots = f && favSlots(f);
+        if (!slots) break;
+        o.ctx = makeContext({ ...extras(), items: state.items, date: parseYmd(o.date), weather: weatherFor(o.date), occasion: o.occasion });
+        o.current = { slots, key: outfitKey(slots), reasons: ['⭐ Einer deiner Favoriten'], score: 0 };
+        const dirty = Object.values(slots).filter(laundryNow);
+        if (dirty.length) toast(`Achtung: ${dirty.map((i) => i.bezeichnung).join(', ')} liegt in der Wäsche.`);
+        render(); window.scrollTo(0, 0); break;
+      }
+      case 'favDel':
+        state.prefs.favorites = state.prefs.favorites.filter((x) => x.key !== el.dataset.k);
+        await savePrefs(); render(); break;
+      case 'resetPrefs':
+        if (!confirm('Alle Favoriten und Bewertungen löschen?')) break;
+        state.prefs = { pairs: {}, blocked: [], favorites: [] }; await savePrefs(); toast('Bewertungen zurückgesetzt.'); render(); break;
+      case 'toggleLaundry': {
+        readForm();
+        const i = state.editing;
+        i.laundrySince = laundryNow(i) ? null : ymd(today());
+        await db.putItem(i);
+        const idx = state.items.findIndex((x) => x.id === i.id);
+        if (idx >= 0) state.items[idx] = i;
+        toast(i.laundrySince ? '🧺 Im Wäschekorb.' : '✓ Wieder im Schrank.'); render(); break;
+      }
+      case 'allClean':
+        for (const i of state.items.filter(laundryNow)) { i.laundrySince = null; await db.putItem(i); }
+        toast('Alles wieder sauber.'); render(); break;
 
       case 'wstart': state.week = emptyWeek(el.dataset.d); await planDays(); break;
       case 'wplan': await planDays(); break;
@@ -678,8 +934,10 @@ document.addEventListener('click', async (ev) => {
       case 'wlock': state.week.days[n].locked = !state.week.days[n].locked; await saveWeek(); render(); break;
       case 'wworn': {
         const d = state.week.days[n];
-        await markWorn(d.outfit.slots, d.date, d.occasion);
-        d.worn = true; d.locked = true; await saveWeek(); render(); toast('Als getragen eingetragen.');
+        const slots = d.occasion === 'sport' ? { ...weekSportKits()[n].items } : d.outfit.slots;
+        const washed = await markWorn(slots, d.date, d.occasion);
+        d.worn = true; d.locked = true; await saveWeek(); render();
+        toast(`Als getragen eingetragen${washed ? ` · ${washed} Teil(e) im Wäschekorb` : ''}.`);
         break;
       }
       case 'wswap': {
@@ -688,7 +946,7 @@ document.addEventListener('click', async (ev) => {
         state.week.days.forEach((x, k) => { if (k !== n && x.outfit) Object.values(x.outfit.slots).forEach((i) => others.add(i.id)); });
         const repeat = new Set(state.items.filter((i) => state.settings.repeatCats.includes(i.kategorie)).map((i) => i.id));
         const ctx = makeContext({
-          items: state.items, date: d.dateObj, weather: weatherFor(d.date), occasion: d.occasion,
+          ...extras(), items: state.items, date: d.dateObj, weather: weatherFor(d.date), occasion: d.occasion,
           exclude: new Set([...others].filter((id) => !repeat.has(id))), softExclude: new Set([...others].filter((id) => repeat.has(id))),
         });
         const next = swapSlot(d.outfit, el.dataset.slot, ctx);
@@ -767,6 +1025,21 @@ document.addEventListener('change', async (ev) => {
     if (el.id === 'importInput') { await importBackup(el.files[0]); el.value = ''; render(); return; }
     if (el.id === 'odate' && el.value) { state.outfit.date = el.value; state.outfit.occasion = null; state.outfit.current = null; state.outfit.seen.clear(); render(); return; }
     const act = el.dataset.act;
+    if (el.id === 'sstart' && el.value) { state.outfit.sport.start = el.value; render(); return; }
+    if (el.id === 'sdauer') { state.outfit.sport.dauer = +el.value; render(); return; }
+    if (['wsart', 'wsstart', 'wsdauer'].includes(act)) {
+      const d = state.week.days[+el.dataset.n];
+      const f = { wsart: 'art', wsstart: 'start', wsdauer: 'dauer' }[act];
+      d.sport = { ...d.sport, [f]: f === 'dauer' ? +el.value : el.value };
+      await saveWeek(); render(); return;
+    }
+    if (act === 'setSport') { state.settings.sport[el.dataset.f] = el.dataset.f === 'dauer' ? +el.value : el.value; await saveSettings(); return; }
+    if (act === 'laundryDays') { state.settings.laundryDays = +el.value; await saveSettings(); return; }
+    if (act === 'autoLaundry') {
+      const set = new Set(state.settings.autoLaundryCats);
+      if (el.checked) set.add(el.value); else set.delete(el.value);
+      state.settings.autoLaundryCats = [...set]; await saveSettings(); return;
+    }
     if (act === 'wocc') { const d = state.week.days[+el.dataset.n]; d.occasion = el.value; d.locked = false; await planDays(+el.dataset.n); }
     if (act === 'wdOcc') { state.settings.weekdayOccasions[+el.dataset.d] = el.value; await saveSettings(); }
     if (act === 'repeatCat') {
@@ -794,6 +1067,12 @@ async function init() {
   state.items = await db.allItems();
   state.week = await loadWeek();
   state.body = (await db.get('bodyPhoto')) || null;
+  state.prefs = { pairs: {}, blocked: [], favorites: [], ...((await db.get('prefs')) || {}) };
+  state.settings.sport = { ...DEFAULT_SETTINGS.sport, ...state.settings.sport };
+  if (!state.settings.v13) { // einmalig: Hosen dürfen jetzt standardmäßig mehrfach pro Woche vorkommen
+    if (!state.settings.repeatCats.includes('unterteil')) state.settings.repeatCats.push('unterteil');
+    state.settings.v13 = true; await saveSettings();
+  }
   render();
   await loadForecast();
   render();
