@@ -39,6 +39,7 @@ export const db = {
   putHistory: (h) => run('history', 'readwrite', (s) => s.put(h)),
   get: (key) => run('kv', 'readonly', (s) => s.get(key)),
   set: (key, value) => run('kv', 'readwrite', (s) => s.put(value, key)),
+  del: (key) => run('kv', 'readwrite', (s) => s.delete(key)),
   async clearAll() {
     for (const s of ['items', 'history', 'kv']) await run(s, 'readwrite', (st) => st.clear());
   },

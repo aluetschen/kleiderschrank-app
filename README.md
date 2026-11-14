@@ -11,6 +11,15 @@ Web-App (PWA): Kleidung fotografieren, automatisch per KI erkennen lassen und Ou
 
 > Wichtig: Die Daten liegen nur auf dem Gerät (im Speicher der Home-Bildschirm-App, getrennt von Safari). Unter *Einstellungen → Sicherung* regelmäßig exportieren.
 
+## Virtuelle Anprobe (Google Gemini)
+
+Unter *Einstellungen → Anprobe* ein Ganzkörperfoto hochladen und einen Google-API-Schlüssel eintragen (aistudio.google.com → „Get API key"). Danach zeigt die App beim Tages-Outfit und im Wochenplan (*Anprobe & Details*) auf Knopfdruck, wie das Outfit an dir aussieht.
+
+- Bildmodell: standardmäßig `gemini-3.1-flash-image`, in den Einstellungen änderbar.
+- Kosten: wenige Cent pro Bild. Jedes Bild wird nur einmal erzeugt und auf dem Gerät gespeichert (max. 40). Gleiches Outfit = kein neuer Aufruf.
+- Datenschutz: Für jede Anprobe gehen dein Foto und die Kleidungsbilder an Google. Im kostenlosen Kontingent darf Google die Daten zur Verbesserung nutzen, mit Bezahlkonto nicht (Google-Nutzungsbedingungen).
+- Die Bilder sind KI-generiert: Passform und Details können abweichen.
+
 ## Beispiel-Schrank zum Ausprobieren
 
 Ohne eigene Fotos testen: im leeren Schrank auf **„Beispiel-Schrank laden"** tippen (oder *Einstellungen → Beispiel-Schrank*). Dann kommen 27 gezeichnete Teile für Alltag, Büro, Festlich und Sport in den Schrank, fertig beschrieben und ohne API-Kosten. Über *Entfernen* verschwinden nur diese Teile, eigene bleiben erhalten.
@@ -22,7 +31,7 @@ Die Bilder liegen in [`demo/`](demo/) und lassen sich auch in die Fotos-App spei
 | Ansicht | Was passiert |
 |---|---|
 | **Schrank** | Foto aufnehmen oder aus der Mediathek wählen (auch mehrere). Die KI erkennt Kategorie, Farben, Muster, Stil, Wärme, Jahreszeiten und Anlässe – alles lässt sich korrigieren. |
-| **Outfit** | Tag + Anlass wählen → Vorschlag. Auf ein Teil tippen tauscht es gegen die nächstbeste Alternative. „Das ziehe ich an" merkt sich das Datum. |
+| **Outfit** | Tag + Anlass wählen → Vorschlag mit Anprobe-Bild und Liste der Einzelteile. ↻ tauscht ein Teil gegen die nächstbeste Alternative. „Das ziehe ich an" merkt sich das Datum. |
 | **Woche** | 7 Tage ab heute oder ab Montag, je Tag Anlass (Standard aus den Einstellungen) und Wetter. Tage lassen sich fixieren, einzeln neu würfeln oder Teil für Teil tauschen. |
 | **Einstellungen** | API-Schlüssel, Ort, Standard-Anlass je Wochentag, welche Kategorien im Wochenplan mehrfach vorkommen dürfen, Sicherung. |
 
@@ -43,6 +52,7 @@ Die Bilder liegen in [`demo/`](demo/) und lassen sich auch in die Fotos-App spei
 ## Technik
 
 - Reines HTML/CSS/JavaScript, kein Build-Schritt. Daten in IndexedDB (lokal).
+- Anprobe: Gemini API (`generateContent` mit Foto + Kleidungsbildern), siehe `js/tryon.js`.
 - Wetter: [Open-Meteo](https://open-meteo.com) (kostenlos, ohne Schlüssel).
 - KI: Claude API (`claude-opus-5-5`, niedriger Denkaufwand, strukturierte JSON-Antwort). Das Foto wird vorher auf max. 1024 px verkleinert. Kosten ca. 1–2 Cent pro Foto.
 - `vendor/anthropic-sdk.js` ist das offizielle `@anthropic-ai/sdk` (v1.2.0), für den Browser gebündelt:

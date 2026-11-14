@@ -2,6 +2,7 @@
 import { db, uid } from './db.js';
 import { analyzeClothing } from './ai.js';
 import { getForecast, searchPlace, weatherIcon } from './weather.js';
+import { generateTryOn, getCachedTryOn, tryOnKey, clearTryOnCache, DEFAULT_IMAGE_MODEL } from './tryon.js';
 import {
   KATEGORIEN, ANLAESSE, SAISONS, SLOT_ORDER,
   makeContext, suggestOutfit, swapSlot, planWeek, missingHints, dayTemp,
@@ -61,6 +62,8 @@ const DEFAULT_SETTINGS = {
   location: null,
   weekdayOccasions: ['freizeit', 'buero', 'buero', 'buero', 'buero', 'buero', 'freizeit'], // So..Sa
   repeatCats: ['schuhe', 'jacke', 'accessoire'],
+  googleKey: '',
+  imageModel: DEFAULT_IMAGE_MODEL,
 };
 const state = {
   view: 'schrank',
@@ -73,6 +76,7 @@ const state = {
   outfit: { date: ymd(today()), occasion: null, current: null, seen: new Set(), ctx: null },
   week: null,
   placeResults: [],
+  body: null,          // Ganzkörperfoto { blob, version }
 };
 
 async function saveSettings() { await db.set('settings', state.settings); }
@@ -97,6 +101,17 @@ function render() {
     schrank: renderSchrank, outfit: renderOutfit, woche: renderWoche, einstellungen: renderSettings,
   })[state.view]();
   $main.innerHTML = v;
+  hydrateTryOns().catch(console.error);
+}
+
+let bodyCache = null;
+function bodyUrl() {
+  if (!state.body) return '';
+  if (bodyCache?.blob !== state.body.blob) {
+    if (bodyCache) URL.revokeObjectURL(bodyCache.url);
+    bodyCache = { blob: state.body.blob, url: URL.createObjectURL(state.body.blob) };
+  }
+  return bodyCache.url;
 }
 
 // ---------- Ansicht: Schrank ----------
@@ -280,12 +295,78 @@ function weatherBlock(dateStr) {
     <span><b>${Math.round(w.tmin)}° / ${Math.round(w.tmax)}°</b> · Regen ${w.rain ?? 0} %<br><span class="muted">${esc(state.settings.location.name)}</span></span></div>`;
 }
 
-function outfitView(o, act, extra = '') {
-  return `<div class="outfit">${SLOT_ORDER.filter((k) => o.slots[k]).map((k) => {
-    const it = o.slots[k];
-    return `<button class="piece" data-act="${act}" data-slot="${k}" ${extra} title="Tippen zum Tauschen">
-      <img src="${imgUrl(it)}" alt=""><span class="lbl">${esc(KATEGORIEN[k])}</span><span class="nm">${esc(it.bezeichnung)}</span></button>`;
-  }).join('')}</div>`;
+// Einzelteile als Liste: Bild, Kategorie, Name, Farben, Tausch-Knopf
+function itemList(slots, act, extra = '') {
+  return `<ul class="itemlist">${SLOT_ORDER.filter((k) => slots[k]).map((k) => {
+    const it = slots[k];
+    return `<li>
+      <img src="${imgUrl(it)}" alt="">
+      <div class="il-text"><small>${esc(KATEGORIEN[k])}</small><b>${esc(it.bezeichnung || KATEGORIEN[k])}</b>
+        <span class="dots">${(it.farben || []).map((f) => `<i style="background:${esc(f.hex)}" title="${esc(f.name)}"></i>`).join('')}</span></div>
+      <button class="swapbtn" data-act="${act}" data-slot="${k}" ${extra} aria-label="${esc(KATEGORIEN[k])} tauschen">↻</button>
+    </li>`;
+  }).join('')}</ul>`;
+}
+
+// ---------- Anprobe ----------
+const tryState = new Map(); // Schlüssel -> { status: 'loading' | 'done' | 'error', url, error }
+const tryChecked = new Set();
+
+function tryOnBlock(slots, attrs) {
+  if (!state.body) {
+    return `<div class="tryon-box empty-try"><span class="big">🧍</span>
+      <p>Lade in den <a href="#" data-act="go" data-view="einstellungen">Einstellungen</a> ein Ganzkörperfoto hoch, dann siehst du hier das Outfit an dir.</p></div>`;
+  }
+  const key = tryOnKey(slots, state.body.version);
+  const t = tryState.get(key);
+  if (t?.status === 'done') {
+    return `<div class="tryon-box"><img class="tryon" src="${t.url}" alt="Anprobe" data-act="zoom">
+      <button class="mini-btn regen" data-act="tryon" data-force="1" ${attrs}>↻ Neu erzeugen</button></div>`;
+  }
+  if (t?.status === 'loading') {
+    return `<div class="tryon-box loading" data-trykey="${esc(key)}"><div class="spinner dark"></div><p>Anprobe wird erstellt …<br><span class="muted small">dauert ca. 10–40 Sekunden</span></p></div>`;
+  }
+  return `<div class="tryon-box empty-try" data-trykey="${esc(key)}">
+    ${t?.status === 'error' ? `<p class="err">${esc(t.error)}</p>` : '<span class="big">🧍</span>'}
+    <button class="btn primary small" data-act="tryon" ${attrs}>👤 ${t?.status === 'error' ? 'Erneut versuchen' : 'Anprobe ansehen'}</button>
+    <p class="muted small">Erstellt mit Google Gemini · kostet wenige Cent pro Bild</p></div>`;
+}
+
+// Bereits erzeugte Bilder aus dem Speicher holen, ohne Google erneut zu fragen
+async function hydrateTryOns() {
+  if (!state.body) return;
+  const lists = [];
+  if (state.view === 'outfit' && state.outfit.current) lists.push(state.outfit.current.slots);
+  if (state.view === 'woche' && state.week) state.week.days.forEach((d) => d.outfit && lists.push(d.outfit.slots));
+  let found = false;
+  for (const slots of lists) {
+    const key = tryOnKey(slots, state.body.version);
+    if (tryState.has(key) || tryChecked.has(key)) continue;
+    tryChecked.add(key);
+    const blob = await getCachedTryOn(slots, state.body.version);
+    if (blob) { tryState.set(key, { status: 'done', url: URL.createObjectURL(blob) }); found = true; }
+  }
+  if (found) render();
+}
+
+async function runTryOn(slots) {
+  const key = tryOnKey(slots, state.body?.version);
+  tryState.set(key, { status: 'loading' });
+  render();
+  try {
+    const blob = await generateTryOn({ slots, body: state.body, apiKey: state.settings.googleKey, model: state.settings.imageModel });
+    tryState.set(key, { status: 'done', url: URL.createObjectURL(blob) });
+  } catch (e) {
+    console.error(e);
+    tryState.set(key, { status: 'error', error: e.message });
+  }
+  render();
+}
+
+function zoom(src) {
+  const z = document.getElementById('zoom');
+  z.querySelector('img').src = src;
+  z.hidden = false;
 }
 
 function renderOutfit() {
@@ -296,8 +377,9 @@ function renderOutfit() {
   let body = '';
   if (!state.items.length) body = '<div class="empty"><p>Fotografiere zuerst ein paar Teile im Schrank.</p></div>';
   else if (o.current) {
-    body = `${outfitView(o.current, 'swap')}
-      <p class="muted center">Tippe auf ein Teil, um es auszutauschen.</p>
+    body = `${tryOnBlock(o.current.slots, 'data-src="outfit"')}
+      <h2 class="sub">Die Teile im Einzelnen</h2>
+      ${itemList(o.current.slots, 'swap')}
       <ul class="reasons">${o.current.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
       <div class="actions">
         <button class="btn" data-act="suggest">🔀 Anderer Vorschlag</button>
@@ -401,9 +483,12 @@ function renderWoche() {
         <span class="muted">${wx ? `${weatherIcon(wx.code)} ${Math.round(wx.tmin)}°/${Math.round(wx.tmax)}°${wx.rain >= 50 ? ` ☂ ${wx.rain} %` : ''}` : `≈ ${dayTemp(null, d.dateObj)} °C`}</span>
         <select data-act="wocc" data-n="${n}">${Object.entries(ANLAESSE).map(([k, v]) => `<option value="${k}" ${k === d.occasion ? 'selected' : ''}>${v}</option>`).join('')}</select>
       </div>
-      ${d.outfit ? `<div class="mini">${SLOT_ORDER.filter((k) => d.outfit.slots[k]).map((k) => `<button class="mp" data-act="wswap" data-n="${n}" data-slot="${k}" title="${esc(d.outfit.slots[k].bezeichnung)}"><img src="${imgUrl(d.outfit.slots[k])}" alt=""></button>`).join('')}</div>`
+      ${d.outfit ? `${state.openDay === n ? tryOnBlock(d.outfit.slots, `data-src="week" data-n="${n}"`) + itemList(d.outfit.slots, 'wswap', `data-n="${n}"`)
+          : `<div class="mini">${SLOT_ORDER.filter((k) => d.outfit.slots[k]).map((k) => `<button class="mp" data-act="wswap" data-n="${n}" data-slot="${k}" title="${esc(d.outfit.slots[k].bezeichnung)}"><img src="${imgUrl(d.outfit.slots[k])}" alt=""></button>`).join('')}</div>
+            <p class="names small muted">${SLOT_ORDER.filter((k) => d.outfit.slots[k]).map((k) => esc(d.outfit.slots[k].bezeichnung)).join(' · ')}</p>`}`
         : `<p class="muted small">${d.hints?.length ? 'Fehlt: ' + esc(d.hints.join(', ')) : 'Noch kein Outfit'}</p>`}
       <div class="dayact">
+        ${d.outfit ? `<button class="mini-btn ${state.openDay === n ? 'on' : ''}" data-act="wopen" data-n="${n}">${state.openDay === n ? '▲ Zuklappen' : '👤 Anprobe & Details'}</button>` : ''}
         <button class="mini-btn" data-act="wlock" data-n="${n}">${d.locked ? '🔒 Fixiert' : '🔓 Fixieren'}</button>
         <button class="mini-btn" data-act="wredo" data-n="${n}" ${d.locked ? 'disabled' : ''}>↻ Neu</button>
         <button class="mini-btn" data-act="wworn" data-n="${n}" ${!d.outfit || d.worn ? 'disabled' : ''}>${d.worn ? '✓ Getragen' : '✓ Angezogen'}</button>
@@ -458,6 +543,22 @@ function renderSettings() {
       <div class="chips">${Object.entries(KATEGORIEN).map(([k, v]) => `<label class="chip check"><input type="checkbox" data-act="repeatCat" value="${k}" ${s.repeatCats.includes(k) ? 'checked' : ''}><span>${v}</span></label>`).join('')}</div>
     </section>
     <section class="card">
+      <h2>Anprobe (Google Gemini)</h2>
+      <p class="muted small">Ein Ganzkörperfoto von dir: Die App zeigt damit, wie die vorgeschlagenen Outfits an dir aussehen. Tipps: gerade stehen, ganzer Körper von Kopf bis Fuß, eher eng anliegende Kleidung, ruhiger Hintergrund, gutes Licht.</p>
+      ${state.body ? `<img class="bodythumb" src="${bodyUrl()}" alt="Ganzkörperfoto" data-act="zoom">` : ''}
+      <div class="row">
+        <label class="btn small">${state.body ? 'Foto ändern' : '📷 Ganzkörperfoto wählen'}<input type="file" id="bodyInput" accept="image/*" hidden></label>
+        ${state.body ? '<button class="btn danger small" data-act="deleteBody">Foto löschen</button>' : ''}
+      </div>
+      <label class="small muted">Google-API-Schlüssel (aistudio.google.com → „Get API key")</label>
+      <input type="password" id="googleKey" value="${esc(s.googleKey)}" placeholder="AIza…" autocomplete="off">
+      <label class="small muted">Bildmodell</label>
+      <input id="imageModel" value="${esc(s.imageModel)}" placeholder="${DEFAULT_IMAGE_MODEL}" autocomplete="off" autocapitalize="off">
+      <button class="btn small" data-act="saveGoogle">Speichern</button>
+      <p class="muted small">Datenschutz: Für jede Anprobe gehen dein Foto und die Bilder der Kleidungsstücke an Google. Im kostenlosen Google-Kontingent darf Google eingesendete Daten zur Verbesserung seiner Dienste nutzen, mit Abrechnung (Bezahlkonto) nicht – siehe Google-Nutzungsbedingungen. Fertige Bilder werden nur auf diesem iPhone gespeichert (max. 40).</p>
+      <button class="btn ghost small" data-act="clearTryOns">Gespeicherte Anprobe-Bilder löschen</button>
+    </section>
+    <section class="card">
       <h2>Beispiel-Schrank</h2>
       <p class="muted small">27 gezeichnete Beispielteile (Alltag, Büro, Festlich, Sport) zum Ausprobieren. ${state.items.some((i) => i.demo) ? `Aktuell geladen: ${state.items.filter((i) => i.demo).length} Teile.` : ''}</p>
       <div class="row"><button class="btn small" data-act="loadDemo">Laden</button>
@@ -470,14 +571,14 @@ function renderSettings() {
       <label class="btn small">Importieren<input type="file" id="importInput" accept="application/json,.json" hidden></label></div>
       <button class="btn danger small" data-act="wipe">Alle Daten löschen</button>
     </section>
-    <p class="muted small center">Kleiderschrank · Version 1.1</p>`;
+    <p class="muted small center">Kleiderschrank · Version 1.2</p>`;
 }
 
 async function exportBackup() {
   const toDataUrl = (blob) => new Promise((r) => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(blob); });
   const items = [];
   for (const it of state.items) items.push({ ...it, image: it.image ? await toDataUrl(it.image) : null });
-  const { apiKey, ...settings } = state.settings; // Schlüssel nicht mit exportieren
+  const { apiKey, googleKey, ...settings } = state.settings; // Schlüssel nicht mit exportieren
   const data = { app: 'kleiderschrank', version: 1, exportedAt: new Date().toISOString(), settings, items, history: await db.allHistory() };
   const file = new File([JSON.stringify(data)], `kleiderschrank-${ymd(new Date())}.json`, { type: 'application/json' });
   if (navigator.canShare?.({ files: [file] })) {
@@ -500,7 +601,7 @@ async function importBackup(file) {
     n++;
   }
   for (const h of data.history || []) await db.putHistory(h);
-  if (data.settings) { state.settings = { ...state.settings, ...data.settings, apiKey: state.settings.apiKey }; await saveSettings(); }
+  if (data.settings) { state.settings = { ...state.settings, ...data.settings, apiKey: state.settings.apiKey, googleKey: state.settings.googleKey }; await saveSettings(); }
   state.items = await db.allItems();
   toast(`${n} Teile importiert.`);
 }
@@ -616,6 +717,24 @@ document.addEventListener('click', async (ev) => {
         }, () => toast('Standort nicht verfügbar.'));
         break;
       case 'export': await exportBackup(); break;
+      case 'zoom': zoom(el.src); break;
+      case 'tryon': {
+        const slots = el.dataset.src === 'week' ? state.week.days[n].outfit.slots : state.outfit.current.slots;
+        if (!state.settings.googleKey) { toast('Bitte zuerst den Google-API-Schlüssel in den Einstellungen eintragen.'); break; }
+        await runTryOn(slots);
+        break;
+      }
+      case 'wopen': state.openDay = state.openDay === n ? null : n; render(); break;
+      case 'saveGoogle':
+        state.settings.googleKey = document.getElementById('googleKey').value.trim();
+        state.settings.imageModel = document.getElementById('imageModel').value.trim() || DEFAULT_IMAGE_MODEL;
+        await saveSettings(); toast('Gespeichert.'); render(); break;
+      case 'deleteBody':
+        if (!confirm('Ganzkörperfoto löschen? Gespeicherte Anprobe-Bilder werden ebenfalls gelöscht.')) break;
+        await db.del('bodyPhoto'); await clearTryOnCache();
+        state.body = null; tryState.clear(); tryChecked.clear(); toast('Foto gelöscht.'); render(); break;
+      case 'clearTryOns':
+        await clearTryOnCache(); tryState.clear(); tryChecked.clear(); toast('Anprobe-Bilder gelöscht.'); break;
       case 'loadDemo': el.disabled = true; toast('Beispiel-Schrank wird geladen …'); await loadDemo(); break;
       case 'removeDemo':
         if (!confirm('Alle Beispielteile aus dem Schrank entfernen? Deine eigenen Teile bleiben erhalten.')) break;
@@ -624,6 +743,7 @@ document.addEventListener('click', async (ev) => {
         if (!confirm('Wirklich ALLE Kleidungsstücke, Pläne und Einstellungen löschen?')) break;
         await db.clearAll();
         state.items = []; state.week = null; state.settings = { ...DEFAULT_SETTINGS }; state.forecast = null;
+        state.body = null; tryState.clear(); tryChecked.clear();
         toast('Alles gelöscht.'); render(); break;
       default: break;
     }
@@ -637,6 +757,13 @@ document.addEventListener('change', async (ev) => {
   const el = ev.target;
   try {
     if (el.id === 'photoInput') { await handlePhotos(el.files); el.value = ''; return; }
+    if (el.id === 'bodyInput' && el.files[0]) {
+      const blob = await resizeImage(el.files[0], 1536);
+      state.body = { blob, version: Date.now() };
+      await db.set('bodyPhoto', state.body);
+      tryState.clear(); tryChecked.clear();
+      el.value = ''; toast('Ganzkörperfoto gespeichert.'); render(); return;
+    }
     if (el.id === 'importInput') { await importBackup(el.files[0]); el.value = ''; render(); return; }
     if (el.id === 'odate' && el.value) { state.outfit.date = el.value; state.outfit.occasion = null; state.outfit.current = null; state.outfit.seen.clear(); render(); return; }
     const act = el.dataset.act;
@@ -666,6 +793,7 @@ async function init() {
   state.settings = { ...DEFAULT_SETTINGS, ...((await db.get('settings')) || {}) };
   state.items = await db.allItems();
   state.week = await loadWeek();
+  state.body = (await db.get('bodyPhoto')) || null;
   render();
   await loadForecast();
   render();

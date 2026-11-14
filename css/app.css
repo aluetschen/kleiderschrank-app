@@ -168,3 +168,34 @@ input[type=checkbox] { accent-color: var(--accent); width: 20px; height: 20px; }
   opacity: 0; pointer-events: none; transition: .25s; max-width: calc(100% - 32px); z-index: 20; text-align: center;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Anprobe */
+h2.sub { margin: 18px 0 6px; }
+.tryon-box {
+  margin-top: 12px; background: var(--card); border-radius: var(--radius); overflow: hidden; position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+}
+.tryon-box.empty-try, .tryon-box.loading { padding: 22px 16px; gap: 8px; min-height: 180px; }
+.tryon-box .big { font-size: 44px; }
+.tryon-box p { margin: 0; font-size: 14px; }
+.tryon-box .err { color: var(--danger); }
+.tryon { width: 100%; max-height: 70vh; object-fit: contain; display: block; background: var(--chip); cursor: zoom-in; }
+.day .tryon { max-height: 380px; }
+.tryon-box .regen { position: absolute; right: 8px; bottom: 8px; background: rgba(255,255,255,.85); color: #222; }
+.spinner.dark { border-color: var(--line); border-top-color: var(--accent); }
+.itemlist { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.itemlist li { display: grid; grid-template-columns: 56px 1fr 40px; gap: 10px; align-items: center; background: var(--card); border-radius: 12px; padding: 6px; }
+.day .itemlist li { background: var(--bg); }
+.itemlist img { width: 56px; height: 56px; object-fit: cover; border-radius: 9px; background: var(--chip); }
+.il-text { min-width: 0; display: flex; flex-direction: column; }
+.il-text small { color: var(--muted); font-size: 12px; }
+.il-text b { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dots { display: flex; gap: 4px; margin-top: 3px; }
+.dots i { width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--line); display: inline-block; }
+.swapbtn { border: 0; background: var(--chip); border-radius: 50%; width: 36px; height: 36px; font-size: 18px; cursor: pointer; }
+.names { margin: 0 0 6px; }
+.mini-btn.on { background: var(--accent); color: var(--accent-text); }
+.bodythumb { width: 120px; aspect-ratio: 3/4; object-fit: cover; border-radius: 12px; cursor: zoom-in; }
+#zoom { position: fixed; inset: 0; background: rgba(0,0,0,.88); z-index: 30; display: flex; align-items: center; justify-content: center; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+#zoom[hidden] { display: none; }
+#zoom img { max-width: 100%; max-height: 100%; object-fit: contain; }
