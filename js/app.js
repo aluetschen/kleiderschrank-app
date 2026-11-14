@@ -824,10 +824,17 @@ async function importBackup(file) {
 // ---------- Beispiel-Schrank ----------
 async function loadDemo() {
   const list = await (await fetch('demo/demo.json')).json();
-  const have = new Set(state.items.filter((i) => i.demo).map((i) => i.demoId));
-  let n = 0;
+  const have = new Map(state.items.filter((i) => i.demo).map((i) => [i.demoId, i]));
+  let n = 0, updated = 0;
   for (const d of list) {
-    if (have.has(d.demoId)) continue; // nicht doppelt laden
+    const old = have.get(d.demoId);
+    if (old) { // schon da: nur Beschreibung aktualisieren (Bild, Tragehistorie, Wäsche bleiben)
+      const { datei, ...meta } = d;
+      Object.assign(old, meta);
+      await db.putItem(old);
+      updated++;
+      continue;
+    }
     const image = await (await fetch('demo/' + d.datei)).blob();
     const { datei, ...meta } = d;
     const item = { ...newItem(image), ...meta, demo: true };
@@ -835,7 +842,7 @@ async function loadDemo() {
     state.items.push(item);
     n++;
   }
-  toast(n ? `${n} Beispielteile geladen.` : 'Der Beispiel-Schrank ist schon geladen.');
+  toast(n ? `${n} Beispielteile geladen${updated ? `, ${updated} aktualisiert` : ''}.` : `Beispiel-Schrank ist aktuell (${updated} Teile).`);
   render();
 }
 
