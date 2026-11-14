@@ -1,6 +1,6 @@
 // Service Worker: speichert die App-Dateien, damit sie auch offline startet.
 // Bei Änderungen an der App die Versionsnummer erhöhen.
-const CACHE = 'kleiderschrank-v5';
+const CACHE = 'kleiderschrank-v6';
 const FILES = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
   'js/app.js', 'js/db.js', 'js/ai.js', 'js/weather.js', 'js/outfits.js', 'js/colors.js', 'js/tryon.js', 'js/sport.js',

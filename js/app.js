@@ -3,6 +3,7 @@ import { db, uid } from './db.js';
 import { analyzeClothing } from './ai.js';
 import { getForecast, searchPlace, weatherIcon } from './weather.js';
 import { SPORTARTEN, SPORTTEILE, SPORT_WASH, activityConditions, sportKit, inLaundry } from './sport.js';
+import { MAX_FAV_PER_WEEK } from './outfits.js';
 import { generateTryOn, getCachedTryOn, tryOnKey, clearTryOnCache, DEFAULT_IMAGE_MODEL } from './tryon.js';
 import {
   KATEGORIEN, ANLAESSE, SAISONS, SLOT_ORDER,
@@ -78,18 +79,26 @@ const state = {
   editing: null,       // Kleidungsstück im Editor
   analyzing: false,
   outfit: { date: ymd(today()), occasion: null, current: null, seen: new Set(), ctx: null, sport: null, dislike: null },
-  prefs: { pairs: {}, blocked: [], favorites: [] }, // Daumen hoch/runter
+  prefs: emptyPrefs(),
   week: null,
   placeResults: [],
   body: null,          // Ganzkörperfoto { blob, version }
 };
 
 async function saveSettings() { await db.set('settings', state.settings); }
+function emptyPrefs() {
+  // ratings: Outfit-Bewertung je Kombination (1 = gut, 2 = Lieblingsoutfit)
+  // pairs/colorPairs/occ: gelernte Vorlieben; swaps/shown: stilles Signal; tempOffset: Wärmeempfinden
+  return { pairs: {}, blocked: [], favorites: [], ratings: {}, colorPairs: {}, occ: {}, swaps: {}, shown: {}, tempOffset: 0 };
+}
 async function savePrefs() { await db.set('prefs', state.prefs); }
+const bump = (obj, key, d) => { obj[key] = Math.round(((obj[key] || 0) + d) * 100) / 100; if (!obj[key]) delete obj[key]; };
+const washes = (i) => (sportOnly(i) ? SPORT_WASH.includes(i.sportteil) : state.settings.autoLaundryCats.includes(i.kategorie));
 function extras() {
   return {
     laundryDays: state.settings.laundryDays,
-    prefs: { pairs: state.prefs.pairs, blocked: new Set(state.prefs.blocked), favKeys: new Set(state.prefs.favorites.map((f) => f.key)) },
+    washes,
+    prefs: { ...state.prefs, blocked: new Set(state.prefs.blocked), favKeys: new Set(state.prefs.favorites.map((f) => f.key)) },
   };
 }
 const laundryNow = (i) => inLaundry(i, today(), state.settings.laundryDays);
@@ -133,19 +142,26 @@ function renderSchrank() {
   const counts = {};
   state.items.forEach((i) => { counts[i.kategorie] = (counts[i.kategorie] || 0) + 1; });
   const list = state.items
-    .filter((i) => state.filter === 'alle' || (state.filter === 'waesche' ? laundryNow(i) : i.kategorie === state.filter))
+    .filter((i) => state.filter === 'alle' || (state.filter === 'waesche' ? laundryNow(i)
+      : state.filter === 'liebling' || state.filter === 'ungern' ? i.bewertung === state.filter : i.kategorie === state.filter))
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const nLaundry = state.items.filter(laundryNow).length;
-  const chips = [['alle', `Alle (${state.items.length})`], ...(nLaundry || state.filter === 'waesche' ? [['waesche', `🧺 Wäsche (${nLaundry})`]] : []),
+  const nFav = state.items.filter((i) => i.bewertung === 'liebling').length;
+  const nBad = state.items.filter((i) => i.bewertung === 'ungern').length;
+  const chips = [['alle', `Alle (${state.items.length})`], ...(nFav || state.filter === 'liebling' ? [['liebling', `❤️ Lieblingsteile (${nFav})`]] : []),
+    ...(nLaundry || state.filter === 'waesche' ? [['waesche', `🧺 Wäsche (${nLaundry})`]] : []),
+    ...(nBad || state.filter === 'ungern' ? [['ungern', `👎 Ungern (${nBad})`]] : []),
     ...Object.entries(KATEGORIEN).filter(([k]) => counts[k]).map(([k, v]) => [k, `${v} (${counts[k]})`])];
   return `
     <header class="top"><h1>Kleiderschrank</h1></header>
     ${!state.settings.apiKey ? `<div class="note">Für die automatische Erkennung von Fotos bitte in den <a href="#" data-act="go" data-view="einstellungen">Einstellungen</a> einen Claude-API-Schlüssel hinterlegen. Ohne Schlüssel kannst du die Angaben selbst eintragen.</div>` : ''}
     <div class="chips scroll">${chips.map(([k, l]) => `<button class="chip ${state.filter === k ? 'on' : ''}" data-act="filter" data-k="${k}">${esc(l)}</button>`).join('')}</div>
+    ${state.filter === 'liebling' ? `<div class="note">Deine Lieblingsteile werden bevorzugt und dürfen im Wochenplan bis zu ${MAX_FAV_PER_WEEK}× pro Woche vorkommen – mit genug Abstand, wenn sie zwischendurch in die Wäsche müssen.</div>` : ''}
+    ${state.filter === 'ungern' ? '<div class="note">Diese Teile schlägt die App nur noch vor, wenn nichts anderes passt. Gute Kandidaten zum Aussortieren.</div>' : ''}
     ${state.filter === 'waesche' ? `<div class="note">Teile im Wäschekorb werden nicht vorgeschlagen. Nach ${state.settings.laundryDays} Tagen sind sie automatisch wieder verfügbar. ${nLaundry ? '<button class="btn small" data-act="allClean">✓ Alles wieder sauber</button>' : ''}</div>` : ''}
     ${list.length ? `<div class="grid">${list.map((i) => `
       <button class="tile ${laundryNow(i) ? 'laundry' : ''}" data-act="edit" data-id="${i.id}">
-        <img src="${imgUrl(i)}" alt="" loading="lazy">${laundryNow(i) ? '<em class="badge">🧺</em>' : ''}
+        <img src="${imgUrl(i)}" alt="" loading="lazy">${laundryNow(i) ? '<em class="badge">🧺</em>' : ''}${i.bewertung === 'liebling' ? '<em class="badge left">❤️</em>' : i.bewertung === 'ungern' ? '<em class="badge left">👎</em>' : ''}
         <span>${esc(i.bezeichnung || KATEGORIEN[i.kategorie])}</span>
       </button>`).join('')}</div>`
     : `<div class="empty"><div class="big">👕</div><p>Noch nichts im Schrank.<br>Tippe auf <b>+</b> und fotografiere dein erstes Kleidungsstück.</p><p class="muted">Tipp: Kleidung flach auf einen ruhigen Untergrund legen oder auf einen Bügel hängen.</p>
@@ -238,6 +254,9 @@ function renderEditor() {
     <form id="itemForm" class="editor">
       <div class="photo"><img src="${imgUrl(i)}" alt="">${state.analyzing ? '<div class="overlay"><div class="spinner"></div>KI erkennt das Teil …</div>' : ''}</div>
       ${state.settings.apiKey && !state.analyzing ? '<button type="button" class="btn ghost small" data-act="analyze">✨ Erneut automatisch erkennen</button>' : ''}
+ <fieldset><legend>Wie gern trägst du das?</legend><div class="chips">
+        ${[['liebling', '❤️ Lieblingsteil'], ['', 'Normal'], ['ungern', '👎 Ungern']].map(([v, l]) => `<label class="chip check"><input type="radio" name="bewertung" value="${v}" ${(i.bewertung || '') === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}
+      </div></fieldset>
       <label>Bezeichnung<input name="bezeichnung" value="${esc(i.bezeichnung)}" placeholder="z. B. Dunkelblaue Chino"></label>
       <label>Kategorie<select name="kategorie">${opt(KATEGORIEN, i.kategorie)}</select></label>
       <fieldset><legend>Farben</legend>
@@ -289,6 +308,7 @@ function readForm() {
   i.saisons = fd.getAll('saisons');
   i.regenfest = fd.get('regenfest') === 'on';
   i.sportteil = fd.get('sportteil') || 'keins';
+  i.bewertung = fd.get('bewertung') || null;
   i.sportarten = fd.getAll('sportarten');
   i.farben = [...form.querySelectorAll('.colorrow')].map((r) => ({
     hex: r.querySelector('[name=hex]').value,
@@ -329,6 +349,7 @@ function itemList(slots, act, extra = '') {
       <img src="${imgUrl(it)}" alt="">
       <div class="il-text"><small>${esc(KATEGORIEN[k])}</small><b>${esc(it.bezeichnung || KATEGORIEN[k])}</b>
         <span class="dots">${(it.farben || []).map((f) => `<i style="background:${esc(f.hex)}" title="${esc(f.name)}"></i>`).join('')}</span></div>
+      <button class="heartbtn" data-act="favItem" data-id="${it.id}" aria-label="Als Lieblingsteil markieren">${it.bewertung === 'liebling' ? '❤️' : '🤍'}</button>
       <button class="swapbtn" data-act="${act}" data-slot="${k}" ${extra} aria-label="${esc(KATEGORIEN[k])} tauschen">↻</button>
     </li>`;
   }).join('')}</ul>`;
@@ -434,18 +455,85 @@ function outfitHeader(o, t, m) {
     <div class="chips">${Object.entries(ANLAESSE).map(([k, v]) => `<button class="chip ${o.occasion === k ? 'on' : ''}" data-act="oocc" data-k="${k}">${k === 'sport' ? '🏃 ' : ''}${v}</button>`).join('')}</div>`;
 }
 
-// ---------- Daumen hoch / runter ----------
+// ---------- Outfit bewerten: 👎 (mit Grund) / 👍 / ❤️ ----------
+const DISLIKE_REASONS = { warm: '🥵 Zu warm', kalt: '🥶 Zu kalt', farben: '🎨 Farben passen nicht', stil: '👔 Stil passt nicht zum Anlass', teil: '👕 Ein bestimmtes Teil' };
+
 function feedbackBlock(o) {
-  const fav = state.prefs.favorites.some((f) => f.key === o.current.key);
+  const r = state.prefs.ratings[o.current.key] || 0;
   const items = SLOT_ORDER.filter((k) => o.current.slots[k]).map((k) => o.current.slots[k]);
+  const d = o.dislike;
   return `<div class="feedback">
       <span class="muted small">Wie gefällt dir das Outfit?</span>
-      <button class="mini-btn ${fav ? 'on' : ''}" data-act="like">👍 ${fav ? 'Favorit' : 'Gefällt mir'}</button>
-      <button class="mini-btn ${o.dislike ? 'on' : ''}" data-act="dislike">👎 Passt nicht</button>
+      <div class="rate3">
+        <button class="${d ? 'on' : ''}" data-act="dislike" aria-label="Passt nicht">👎</button>
+        <button class="${r === 1 ? 'on' : ''}" data-act="rate" data-r="1" aria-label="Gut">👍</button>
+        <button class="${r === 2 ? 'on' : ''}" data-act="rate" data-r="2" aria-label="Lieblingsoutfit">❤️</button>
+      </div>
     </div>
-    ${o.dislike ? `<div class="note dislike"><b>Was passt nicht?</b> Tippe die Teile an, die nicht zum Rest passen. Die App merkt sich das und kombiniert sie künftig seltener. Ohne Auswahl wird nur genau diese Kombination nicht mehr vorgeschlagen.
-      <div class="chips">${items.map((i) => `<button class="chip ${o.dislike.has(i.id) ? 'on' : ''}" data-act="disToggle" data-id="${i.id}">${esc(i.bezeichnung)}</button>`).join('')}</div>
+    ${d ? `<div class="note dislike"><b>Was passt nicht?</b> Mehrere Gründe möglich. Die App lernt daraus gezielt.
+      <div class="chips">${Object.entries(DISLIKE_REASONS).map(([k, l]) => `<button class="chip ${d.reasons.has(k) ? 'on' : ''}" data-act="disReason" data-k="${k}">${l}</button>`).join('')}</div>
+      ${d.reasons.has('teil') ? `<p class="small">Welche Teile passen nicht zum Rest?</p>
+        <div class="chips">${items.map((i) => `<button class="chip ${d.items.has(i.id) ? 'on' : ''}" data-act="disToggle" data-id="${i.id}">${esc(i.bezeichnung)}</button>`).join('')}</div>` : ''}
       <div class="row"><button class="btn small primary" data-act="disApply">Merken & neuer Vorschlag</button><button class="btn ghost small" data-act="disCancel">Abbrechen</button></div></div>` : ''}`;
+}
+
+// Paare eines Outfits um d verändern (gemocht = +, abgelehnt = −)
+function bumpPairs(items, d) {
+  for (let a = 0; a < items.length; a++) for (let b = a + 1; b < items.length; b++) bump(state.prefs.pairs, pairKey(items[a].id, items[b].id), d);
+}
+
+async function rateCurrent(level) {
+  const o = state.outfit;
+  const key = o.current.key;
+  const items = Object.values(o.current.slots);
+  const old = state.prefs.ratings[key] || 0;
+  const next = old === level ? 0 : level; // erneutes Tippen nimmt die Bewertung zurück
+  bumpPairs(items, next - old);           // 👍 = +1 je Paar, ❤️ = +2 je Paar
+  if (next) state.prefs.ratings[key] = next; else delete state.prefs.ratings[key];
+  state.prefs.favorites = state.prefs.favorites.filter((f) => f.key !== key);
+  if (next === 2) state.prefs.favorites.push({ key, occasion: o.occasion, at: Date.now(), ids: Object.fromEntries(Object.entries(o.current.slots).map(([k, v]) => [k, v.id])) });
+  await savePrefs();
+  toast(next === 2 ? '❤️ Lieblingsoutfit – kommt öfter und steht unten in deinen Favoriten.' : next === 1 ? '👍 Gemerkt.' : 'Bewertung entfernt.');
+  render();
+}
+
+async function applyDislike() {
+  const o = state.outfit;
+  const { reasons, items: badIds } = o.dislike;
+  const items = Object.values(o.current.slots);
+  const clothes = items.filter((i) => i.kategorie !== 'accessoire');
+  const P = state.prefs;
+  // Bisherige 👍/❤️ dieses Outfits zurücknehmen
+  const old = P.ratings[o.current.key] || 0;
+  if (old) { bumpPairs(items, -old); delete P.ratings[o.current.key]; }
+  if (reasons.has('warm')) P.tempOffset = Math.min(4, (P.tempOffset || 0) + 1);  // rechnet künftig wärmer -> leichtere Kleidung
+  if (reasons.has('kalt')) P.tempOffset = Math.max(-4, (P.tempOffset || 0) - 1);
+  if (reasons.has('farben')) {
+    const names = [...new Set(clothes.map((i) => ((i.farben || [])[0]?.name || '').toLowerCase()).filter(Boolean))];
+    for (let a = 0; a < names.length; a++) for (let b = a + 1; b < names.length; b++) bump(P.colorPairs, pairKey(names[a], names[b]), -1);
+  }
+  if (reasons.has('stil')) clothes.forEach((i) => bump(P.occ, i.id + '|' + o.occasion, -1));
+  if (reasons.has('teil')) {
+    for (const x of items.filter((i) => badIds.has(i.id))) for (const y of items.filter((i) => !badIds.has(i.id))) bump(P.pairs, pairKey(x.id, y.id), -1);
+  }
+  P.blocked.push(o.current.key);
+  if (P.blocked.length > 300) P.blocked.shift();
+  P.favorites = P.favorites.filter((f) => f.key !== o.current.key);
+  await savePrefs();
+  o.dislike = null;
+  const msg = [reasons.has('warm') && 'künftig etwas leichter', reasons.has('kalt') && 'künftig etwas wärmer', reasons.has('farben') && 'diese Farben seltener zusammen',
+    reasons.has('stil') && `diese Teile seltener für „${ANLAESSE[o.occasion]}"`, reasons.has('teil') && badIds.size && 'diese Paarung seltener'].filter(Boolean);
+  toast(msg.length ? 'Gemerkt: ' + msg.join(', ') + '.' : 'Diese Kombination kommt nicht wieder.');
+  suggest();
+}
+
+// Stilles Signal: ein ausgetauschtes Teil passt offenbar nicht so gut (leichtes Minus, auch für die Paarung)
+function noteSwap(slots, slot) {
+  const out = slots[slot];
+  if (!out) return;
+  bump(state.prefs.swaps, out.id, 1);
+  Object.values(slots).filter((i) => i !== out).forEach((i) => bump(state.prefs.pairs, pairKey(out.id, i.id), -0.25));
+  savePrefs();
 }
 
 function favSlots(f) {
@@ -458,51 +546,13 @@ function favoritesBlock(o) {
   const favs = state.prefs.favorites.map((f) => ({ f, slots: favSlots(f) })).filter((x) => x.slots)
     .sort((a, b) => (b.f.occasion === o.occasion) - (a.f.occasion === o.occasion) || b.f.at - a.f.at);
   if (!favs.length) return '';
-  return `<h2 class="sub">⭐ Deine Favoriten</h2>
+  return `<h2 class="sub">❤️ Deine Lieblingsoutfits</h2>
     ${favs.slice(0, 10).map(({ f, slots }) => `<div class="fav">
       <div class="mini">${SLOT_ORDER.filter((k) => slots[k]).map((k) => `<img src="${imgUrl(slots[k])}" alt="" title="${esc(slots[k].bezeichnung)}" class="${laundryNow(slots[k]) ? 'dim' : ''}">`).join('')}</div>
       <div class="favact"><span class="muted small">${esc(ANLAESSE[f.occasion] || '')}</span>
         <button class="mini-btn" data-act="favUse" data-k="${esc(f.key)}">Anziehen</button>
         <button class="mini-btn" data-act="favDel" data-k="${esc(f.key)}" aria-label="Favorit entfernen">✕</button></div>
     </div>`).join('')}`;
-}
-
-async function likeCurrent() {
-  const o = state.outfit;
-  const items = Object.values(o.current.slots);
-  const idx = state.prefs.favorites.findIndex((f) => f.key === o.current.key);
-  const delta = idx >= 0 ? -1 : 1; // zweites Tippen nimmt das Like zurück
-  for (let a = 0; a < items.length; a++) {
-    for (let b = a + 1; b < items.length; b++) {
-      const k = pairKey(items[a].id, items[b].id);
-      state.prefs.pairs[k] = (state.prefs.pairs[k] || 0) + delta;
-      if (!state.prefs.pairs[k]) delete state.prefs.pairs[k];
-    }
-  }
-  if (idx >= 0) state.prefs.favorites.splice(idx, 1);
-  else state.prefs.favorites.push({ key: o.current.key, occasion: o.occasion, at: Date.now(), ids: Object.fromEntries(Object.entries(o.current.slots).map(([k, v]) => [k, v.id])) });
-  await savePrefs();
-  toast(idx >= 0 ? 'Aus den Favoriten entfernt.' : '⭐ Als Favorit gemerkt – ähnliche Kombinationen kommen öfter.');
-  render();
-}
-
-async function applyDislike() {
-  const o = state.outfit;
-  const items = Object.values(o.current.slots);
-  const bad = o.dislike;
-  for (const x of items.filter((i) => bad.has(i.id))) {
-    for (const y of items.filter((i) => !bad.has(i.id))) {
-      const k = pairKey(x.id, y.id);
-      state.prefs.pairs[k] = (state.prefs.pairs[k] || 0) - 1;
-    }
-  }
-  state.prefs.blocked.push(o.current.key);
-  if (state.prefs.blocked.length > 300) state.prefs.blocked.shift();
-  state.prefs.favorites = state.prefs.favorites.filter((f) => f.key !== o.current.key);
-  await savePrefs();
-  o.dislike = null;
-  toast(bad.size ? 'Gemerkt – diese Kombination kommt seltener.' : 'Diese Kombination wird nicht mehr vorgeschlagen.');
-  suggest();
 }
 
 // ---------- Sport-Modus ----------
@@ -564,11 +614,18 @@ function suggest() {
   if (!next && o.seen.size) { o.seen.clear(); next = suggestOutfit(o.ctx, o.seen); toast('Alle Kombinationen gezeigt – es geht von vorne los.'); }
   o.current = next;
   o.hints = next ? null : missingHints(o.ctx);
+  // Stilles Signal: wie oft ein Teil gezeigt wurde (oft gezeigt, nie getragen = wird seltener)
+  if (next) { Object.values(next.slots).forEach((i) => bump(state.prefs.shown, i.id, 1)); savePrefs(); }
   render();
 }
 
 async function markWorn(slots, dateStr, occasion) {
   let washed = 0;
+  // Stilles Signal: Getragenes zählt als Zustimmung (+0,5 je Paar), Austausch-Zähler sinkt
+  const worn = Object.values(slots);
+  if (occasion !== 'sport') bumpPairs(worn, 0.5);
+  worn.forEach((i) => bump(state.prefs.swaps, i.id, -Math.min(2, state.prefs.swaps[i.id] || 0)));
+  await savePrefs();
   for (const it of Object.values(slots)) {
     if (!it.lastWorn || it.lastWorn < dateStr) it.lastWorn = dateStr;
     it.wornCount = (it.wornCount || 0) + 1;
@@ -752,9 +809,12 @@ function renderSettings() {
       <div class="chips">${Object.entries(KATEGORIEN).map(([k, v]) => `<label class="chip check"><input type="checkbox" data-act="autoLaundry" value="${k}" ${s.autoLaundryCats.includes(k) ? 'checked' : ''}><span>${v}</span></label>`).join('')}</div>
     </section>
     <section class="card">
-      <h2>Deine Bewertungen</h2>
-      <p class="muted small">${state.prefs.favorites.length} Favoriten · ${Object.values(state.prefs.pairs).filter((v) => v < 0).length} abgelehnte Paarungen · ${state.prefs.blocked.length} ausgeschlossene Kombinationen</p>
-      <button class="btn ghost small" data-act="resetPrefs">Bewertungen zurücksetzen</button>
+      <h2>Gelernte Vorlieben</h2>
+      <p class="muted small">❤️ ${state.items.filter((i) => i.bewertung === 'liebling').length} Lieblingsteile · 👎 ${state.items.filter((i) => i.bewertung === 'ungern').length} ungern getragen<br>
+        ${state.prefs.favorites.length} Lieblingsoutfits · ${Object.values(state.prefs.ratings).filter((v) => v === 1).length} gute Outfits · ${state.prefs.blocked.length} ausgeschlossene Kombinationen<br>
+        ${Object.values(state.prefs.pairs).filter((v) => v <= -1).length} unpassende Paarungen · ${Object.keys(state.prefs.colorPairs).length} unpassende Farbkombinationen</p>
+      <p class="small">Wärmeempfinden: ${state.prefs.tempOffset ? `${state.prefs.tempOffset > 0 ? 'dir ist schnell warm' : 'du frierst eher'} – die App rechnet mit ${state.prefs.tempOffset > 0 ? '+' : ''}${state.prefs.tempOffset} °C <button class="btn ghost small" data-act="resetTemp">zurücksetzen</button>` : 'neutral'}</p>
+      <button class="btn ghost small" data-act="resetPrefs">Gelerntes zurücksetzen</button>
     </section>
     <section class="card">
       <h2>Anprobe (Google Gemini)</h2>
@@ -785,7 +845,7 @@ function renderSettings() {
       <label class="btn small">Importieren<input type="file" id="importInput" accept="application/json,.json" hidden></label></div>
       <button class="btn danger small" data-act="wipe">Alle Daten löschen</button>
     </section>
-    <p class="muted small center">Kleiderschrank · Version 1.3</p>`;
+    <p class="muted small center">Kleiderschrank · Version 1.4</p>`;
 }
 
 async function exportBackup() {
@@ -815,7 +875,7 @@ async function importBackup(file) {
     n++;
   }
   for (const h of data.history || []) await db.putHistory(h);
-  if (data.prefs) { state.prefs = data.prefs; await savePrefs(); }
+  if (data.prefs) { state.prefs = { ...emptyPrefs(), ...data.prefs }; await savePrefs(); }
   if (data.settings) { state.settings = { ...state.settings, ...data.settings, apiKey: state.settings.apiKey, googleKey: state.settings.googleKey }; await saveSettings(); }
   state.items = await db.allItems();
   toast(`${n} Teile importiert.`);
@@ -886,6 +946,7 @@ document.addEventListener('click', async (ev) => {
       case 'suggest': suggest(); break;
       case 'swap': {
         const o = state.outfit;
+        noteSwap(o.current.slots, el.dataset.slot);
         const next = swapSlot(o.current, el.dataset.slot, o.ctx);
         if (next) { o.current = next; render(); } else toast('Keine Alternative in dieser Kategorie.');
         break;
@@ -900,9 +961,17 @@ document.addEventListener('click', async (ev) => {
         toast(`Gute Einheit! ${washed} Teil(e) danach im Wäschekorb.`); render(); break;
       }
       case 'sart': state.outfit.sport.art = el.dataset.k; render(); break;
-      case 'like': await likeCurrent(); break;
-      case 'dislike': state.outfit.dislike = state.outfit.dislike ? null : new Set(); render(); break;
-      case 'disToggle': { const s = state.outfit.dislike; if (s.has(el.dataset.id)) s.delete(el.dataset.id); else s.add(el.dataset.id); render(); break; }
+      case 'rate': await rateCurrent(+el.dataset.r); break;
+      case 'dislike': state.outfit.dislike = state.outfit.dislike ? null : { reasons: new Set(), items: new Set() }; render(); break;
+      case 'disReason': { const r = state.outfit.dislike.reasons; if (r.has(el.dataset.k)) r.delete(el.dataset.k); else r.add(el.dataset.k); render(); break; }
+      case 'disToggle': { const s = state.outfit.dislike.items; if (s.has(el.dataset.id)) s.delete(el.dataset.id); else s.add(el.dataset.id); render(); break; }
+      case 'favItem': {
+        const it = itemById(el.dataset.id);
+        it.bewertung = it.bewertung === 'liebling' ? null : 'liebling';
+        await db.putItem(it);
+        toast(it.bewertung ? `❤️ ${it.bezeichnung} ist jetzt ein Lieblingsteil.` : 'Kein Lieblingsteil mehr.');
+        render(); break;
+      }
       case 'disCancel': state.outfit.dislike = null; render(); break;
       case 'disApply': await applyDislike(); break;
       case 'favUse': {
@@ -911,7 +980,7 @@ document.addEventListener('click', async (ev) => {
         const slots = f && favSlots(f);
         if (!slots) break;
         o.ctx = makeContext({ ...extras(), items: state.items, date: parseYmd(o.date), weather: weatherFor(o.date), occasion: o.occasion });
-        o.current = { slots, key: outfitKey(slots), reasons: ['⭐ Einer deiner Favoriten'], score: 0 };
+        o.current = { slots, key: outfitKey(slots), reasons: ['❤️ Eines deiner Lieblingsoutfits'], score: 0 };
         const dirty = Object.values(slots).filter(laundryNow);
         if (dirty.length) toast(`Achtung: ${dirty.map((i) => i.bezeichnung).join(', ')} liegt in der Wäsche.`);
         render(); window.scrollTo(0, 0); break;
@@ -920,8 +989,9 @@ document.addEventListener('click', async (ev) => {
         state.prefs.favorites = state.prefs.favorites.filter((x) => x.key !== el.dataset.k);
         await savePrefs(); render(); break;
       case 'resetPrefs':
-        if (!confirm('Alle Favoriten und Bewertungen löschen?')) break;
-        state.prefs = { pairs: {}, blocked: [], favorites: [] }; await savePrefs(); toast('Bewertungen zurückgesetzt.'); render(); break;
+        if (!confirm('Alle Lieblingsoutfits und gelernten Vorlieben löschen? (Lieblingsteile bleiben markiert.)')) break;
+        state.prefs = emptyPrefs(); await savePrefs(); toast('Gelernte Vorlieben zurückgesetzt.'); render(); break;
+      case 'resetTemp': state.prefs.tempOffset = 0; await savePrefs(); toast('Wärmeempfinden zurückgesetzt.'); render(); break;
       case 'toggleLaundry': {
         readForm();
         const i = state.editing;
@@ -949,6 +1019,7 @@ document.addEventListener('click', async (ev) => {
       }
       case 'wswap': {
         const d = state.week.days[n];
+        noteSwap(d.outfit.slots, el.dataset.slot);
         const others = new Set();
         state.week.days.forEach((x, k) => { if (k !== n && x.outfit) Object.values(x.outfit.slots).forEach((i) => others.add(i.id)); });
         const repeat = new Set(state.items.filter((i) => state.settings.repeatCats.includes(i.kategorie)).map((i) => i.id));
@@ -1074,7 +1145,9 @@ async function init() {
   state.items = await db.allItems();
   state.week = await loadWeek();
   state.body = (await db.get('bodyPhoto')) || null;
-  state.prefs = { pairs: {}, blocked: [], favorites: [], ...((await db.get('prefs')) || {}) };
+  state.prefs = { ...emptyPrefs(), ...((await db.get('prefs')) || {}) };
+  // Übernahme alter Favoriten (Daumen hoch) als Lieblingsoutfits
+  state.prefs.favorites.forEach((f) => { if (!state.prefs.ratings[f.key]) state.prefs.ratings[f.key] = 2; });
   state.settings.sport = { ...DEFAULT_SETTINGS.sport, ...state.settings.sport };
   if (!state.settings.v13) { // einmalig: Hosen dürfen jetzt standardmäßig mehrfach pro Woche vorkommen
     if (!state.settings.repeatCats.includes('unterteil')) state.settings.repeatCats.push('unterteil');

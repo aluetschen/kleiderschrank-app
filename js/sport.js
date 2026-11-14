@@ -151,7 +151,8 @@ export function sportKit({ items, art, cond, date, laundryDays = 3, avoid = new 
   const pickOne = (type) => {
     const list = candidates(items, type, art, date, laundryDays).filter((i) => !used.has(i.id));
     // Am liebsten: diese Woche noch nicht eingeplant, am längsten nicht getragen
-    list.sort((a, b) => (avoid.has(a.id) - avoid.has(b.id)) || String(a.lastWorn || '').localeCompare(String(b.lastWorn || '')));
+    const rank = (i) => (i.bewertung === 'liebling' ? 0 : i.bewertung === 'ungern' ? 2 : 1); // Lieblingsteile zuerst
+    list.sort((a, b) => (avoid.has(a.id) - avoid.has(b.id)) || rank(a) - rank(b) || String(a.lastWorn || '').localeCompare(String(b.lastWorn || '')));
     return list[0] || null;
   };
   const lines = need.map((n) => {

@@ -232,3 +232,12 @@ img.dim { opacity: .4; }
 .missing { color: var(--danger); font-size: 13px; }
 .sportday { border-left: 4px solid var(--accent); }
 .sportbox { border: 1px dashed var(--line); border-radius: 12px; padding: 10px; }
+
+/* Bewertung */
+.rate3 { display: inline-flex; background: var(--chip); border-radius: 999px; padding: 3px; gap: 2px; }
+.rate3 button { border: 0; background: none; font-size: 20px; width: 46px; height: 38px; border-radius: 999px; cursor: pointer; filter: grayscale(.7); opacity: .75; }
+.rate3 button.on { background: var(--card); filter: none; opacity: 1; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+.feedback { justify-content: space-between; }
+.itemlist li { grid-template-columns: 56px 1fr 36px 40px; }
+.heartbtn { border: 0; background: none; font-size: 20px; width: 36px; height: 36px; cursor: pointer; }
+.tile .badge.left { right: auto; left: 6px; }

@@ -28,11 +28,28 @@ Im Outfit-Tab den Anlass **Sport** wählen, dann Sportart, Startzeit und Dauer. 
 - Teile im Wäschekorb werden nicht vorgeschlagen und sind nach 3 Tagen (einstellbar) automatisch wieder verfügbar, auch im Wochenplan.
 - Manuell: Teil öffnen → *In die Wäsche* / *Wieder sauber*. Im Schrank-Filter *🧺 Wäsche* gibt es *Alles wieder sauber*.
 
-## Daumen hoch / runter
+## Bewertungen
 
-- **👍 Gefällt mir:** Das Outfit wird Favorit, und alle Paare darin (z. B. Sakko + Chino) bekommen Pluspunkte. Favoriten stehen unten im Outfit-Tab und lassen sich mit einem Tipp anziehen.
-- **👎 Passt nicht:** Du tippst die Teile an, die nicht passen. Deren Paarungen mit dem Rest bekommen deutliche Abzüge, und genau diese Kombination kommt nie wieder. Ohne Auswahl wird nur die Kombination gesperrt.
-- Zurücksetzen unter *Einstellungen → Deine Bewertungen*.
+**Outfits: 👎 / 👍 / ❤️** (unter dem Vorschlag)
+- **👍 Gut:** jedes Paar im Outfit +1. **❤️ Lieblingsoutfit:** jedes Paar +2, landet in *Deine Lieblingsoutfits* und lässt sich mit einem Tipp anziehen. Erneutes Tippen nimmt die Bewertung zurück.
+- **👎 Passt nicht** mit Grund (mehrere möglich). Jeder Grund korrigiert gezielt eine Regel:
+  - *Zu warm / zu kalt:* Die App rechnet künftig mit ±1 °C (persönliches Wärmeempfinden, max. ±4 °C).
+  - *Farben passen nicht:* Die Farbkombinationen dieses Outfits werden unattraktiver.
+  - *Stil passt nicht zum Anlass:* Die Teile bekommen für diesen Anlass Abzüge.
+  - *Ein bestimmtes Teil:* Die Paarungen dieses Teils mit dem Rest bekommen deutliche Abzüge.
+  - Die Kombination selbst kommt nie wieder.
+
+**Einzelteile: ❤️ Lieblingsteil / Normal / 👎 Ungern** (im Editor oder per Herz in der Teile-Liste)
+- Lieblingsteile werden bevorzugt (+6) und dürfen im Wochenplan **bis zu 2× pro Woche** vorkommen. Teile, die nach dem Tragen in die Wäsche kommen, nur mit genug Abstand (Wäschedauer).
+- Ungern getragene Teile (−30) kommen nur, wenn wirklich nichts anderes passt. Lieber wiederholt die App ein anderes Teil.
+- Schrank-Filter *❤️ Lieblingsteile* und *👎 Ungern* (Kandidaten zum Aussortieren).
+
+**Stilles Signal** (ohne extra Bewertung)
+- *Das ziehe ich an:* jedes Paar im getragenen Outfit +0,5.
+- *Teil ausgetauscht:* leichtes Minus für das Teil und seine Paarung im Outfit.
+- *Oft gezeigt, nie getragen:* Das Teil verliert langsam an Gewicht.
+
+Übersicht und Zurücksetzen unter *Einstellungen → Gelernte Vorlieben*.
 
 ## Virtuelle Anprobe (Google Gemini)
 
@@ -69,7 +86,7 @@ Die Bilder liegen in [`demo/`](demo/) und lassen sich auch in die Fotos-App spei
    - **Stil:** Abzug, wenn die Formalität der Teile weit auseinanderliegt (Sakko + Jogginghose).
    - **Farbe:** Neutrale Farben (Schwarz, Weiß, Grau, Beige, Navy, Denim …) passen immer. Ein Farbakzent = Bonus, zwei Akzente nur Ton-in-Ton oder als Komplementärkontrast, mehr als zwei = Abzug. Mehr als ein gemustertes Teil = Abzug.
    - **Abwechslung:** Abzug für Teile, die in den letzten 3 Tagen getragen wurden, Bonus für lange nicht oder nie getragene.
-   - **Deine Bewertungen:** +3 je gemochtem Paar, −12 je abgelehntem Paar, +10 für Favoriten.
+   - **Deine Bewertungen:** Lieblingsteil +6, ungern −30, gemochtes Paar +3, abgelehntes Paar −12, unpassende Farben −6, Lieblingsoutfit +12 (Details unter *Bewertungen*).
 5. Aus den **Top 5** wird gewichtet zufällig gewählt – so kommt nicht immer dasselbe heraus.
 6. **Wochenplan:** Tag für Tag; einmal verplante Teile sind für die restliche Woche gesperrt (außer den erlaubten Kategorien, standardmäßig Hosen, Schuhe, Jacken, Accessoires). Geht eine Kategorie aus, wird nur in dieser wiederholt – die am seltensten verplanten Teile zuerst, und nie zweimal exakt dasselbe Outfit. Sporttage plant der Sport-Modus.
 
