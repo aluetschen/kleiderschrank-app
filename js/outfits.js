@@ -122,9 +122,12 @@ export function makeContext({ items, date, weather, occasion, exclude = new Set(
   };
   ctx.pools = {};
   for (const cat of Object.keys(KATEGORIEN)) {
-    const all = items.filter((i) => i.kategorie === cat && !exclude.has(i.id));
+    const all = items.filter((i) => i.kategorie === cat);
     const matching = all.filter((i) => (i.anlaesse || []).includes(occasion));
-    ctx.pools[cat] = matching.length ? matching : all; // Fallback: lieber unpassend als gar nichts
+    // Gibt es passende Teile für den Anlass, werden nur diese verwendet – auch wenn sie
+    // diese Woche schon verplant sind (dann greift im Wochenplan die Wiederholung).
+    // Nur wenn der Schrank gar nichts Passendes hat, wird auf alle Teile ausgewichen.
+    ctx.pools[cat] = (matching.length ? matching : all).filter((i) => !exclude.has(i.id));
   }
   return ctx;
 }

@@ -1,0 +1,718 @@
+[
+ {
+  "demoId": "tshirt-weiss",
+  "datei": "tshirt-weiss.jpg",
+  "kategorie": "oberteil",
+  "bezeichnung": "Weißes T-Shirt",
+  "farben": [
+   {
+    "name": "Weiß",
+    "hex": "#f2f2ee",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 2,
+  "waerme": 2,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "freizeit",
+   "buero"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "shirt-streifen",
+  "datei": "shirt-streifen.jpg",
+  "kategorie": "oberteil",
+  "bezeichnung": "Gestreiftes Langarmshirt",
+  "farben": [
+   {
+    "name": "Navy",
+    "hex": "#1f2d4d",
+    "neutral": true
+   },
+   {
+    "name": "Creme",
+    "hex": "#f4f1e8",
+    "neutral": true
+   }
+  ],
+  "muster": "gemustert",
+  "formalitaet": 2,
+  "waerme": 2,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst"
+  ],
+  "anlaesse": [
+   "freizeit",
+   "ausgehen"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "hemd-hellblau",
+  "datei": "hemd-hellblau.jpg",
+  "kategorie": "oberteil",
+  "bezeichnung": "Hellblaues Oxford-Hemd",
+  "farben": [
+   {
+    "name": "Hellblau",
+    "hex": "#9cbde3",
+    "neutral": false
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 4,
+  "waerme": 3,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "buero",
+   "ausgehen"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "hemd-weiss",
+  "datei": "hemd-weiss.jpg",
+  "kategorie": "oberteil",
+  "bezeichnung": "Weißes Businesshemd",
+  "farben": [
+   {
+    "name": "Weiß",
+    "hex": "#fafaf8",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 5,
+  "waerme": 3,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "buero",
+   "festlich",
+   "ausgehen"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "polo-salbei",
+  "datei": "polo-salbei.jpg",
+  "kategorie": "oberteil",
+  "bezeichnung": "Salbeigrünes Poloshirt",
+  "farben": [
+   {
+    "name": "Salbeigrün",
+    "hex": "#8fa882",
+    "neutral": false
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 3,
+  "waerme": 2,
+  "saisons": [
+   "fruehling",
+   "sommer"
+  ],
+  "anlaesse": [
+   "freizeit",
+   "buero"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "laufshirt",
+  "datei": "laufshirt.jpg",
+  "kategorie": "oberteil",
+  "bezeichnung": "Orangefarbenes Laufshirt",
+  "farben": [
+   {
+    "name": "Neonorange",
+    "hex": "#ff7a1a",
+    "neutral": false
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 1,
+  "waerme": 1,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "sport"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "laufshirt-lang",
+  "datei": "laufshirt-lang.jpg",
+  "kategorie": "oberteil",
+  "bezeichnung": "Langarm-Funktionsshirt",
+  "farben": [
+   {
+    "name": "Dunkelblau",
+    "hex": "#2b3a55",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 1,
+  "waerme": 3,
+  "saisons": [
+   "fruehling",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "sport"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "pulli-grau",
+  "datei": "pulli-grau.jpg",
+  "kategorie": "schicht",
+  "bezeichnung": "Grauer Strickpullover",
+  "farben": [
+   {
+    "name": "Grau",
+    "hex": "#8a8a8f",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 3,
+  "waerme": 4,
+  "saisons": [
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "buero",
+   "freizeit"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "pulli-v-navy",
+  "datei": "pulli-v-navy.jpg",
+  "kategorie": "schicht",
+  "bezeichnung": "Navy Pullover mit V-Ausschnitt",
+  "farben": [
+   {
+    "name": "Navy",
+    "hex": "#25304d",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 4,
+  "waerme": 3,
+  "saisons": [
+   "fruehling",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "buero",
+   "ausgehen"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "hoodie-oliv",
+  "datei": "hoodie-oliv.jpg",
+  "kategorie": "schicht",
+  "bezeichnung": "Olivgrüner Hoodie",
+  "farben": [
+   {
+    "name": "Oliv",
+    "hex": "#6b6f3a",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 2,
+  "waerme": 4,
+  "saisons": [
+   "fruehling",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "freizeit",
+   "sport"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "cardigan-bordeaux",
+  "datei": "cardigan-bordeaux.jpg",
+  "kategorie": "schicht",
+  "bezeichnung": "Bordeauxrote Strickjacke",
+  "farben": [
+   {
+    "name": "Bordeaux",
+    "hex": "#7a2433",
+    "neutral": false
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 3,
+  "waerme": 3,
+  "saisons": [
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "buero",
+   "freizeit",
+   "ausgehen"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "sakko-navy",
+  "datei": "sakko-navy.jpg",
+  "kategorie": "schicht",
+  "bezeichnung": "Navy Sakko",
+  "farben": [
+   {
+    "name": "Navy",
+    "hex": "#232c44",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 5,
+  "waerme": 3,
+  "saisons": [
+   "fruehling",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "buero",
+   "festlich",
+   "ausgehen"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "jeans",
+  "datei": "jeans.jpg",
+  "kategorie": "unterteil",
+  "bezeichnung": "Dunkle Jeans",
+  "farben": [
+   {
+    "name": "Jeansblau",
+    "hex": "#34507e",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 2,
+  "waerme": 3,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "freizeit",
+   "buero",
+   "ausgehen"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "chino-beige",
+  "datei": "chino-beige.jpg",
+  "kategorie": "unterteil",
+  "bezeichnung": "Beige Chino",
+  "farben": [
+   {
+    "name": "Beige",
+    "hex": "#c9b38a",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 3,
+  "waerme": 3,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst"
+  ],
+  "anlaesse": [
+   "buero",
+   "freizeit",
+   "ausgehen"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "anzughose-grau",
+  "datei": "anzughose-grau.jpg",
+  "kategorie": "unterteil",
+  "bezeichnung": "Graue Anzughose",
+  "farben": [
+   {
+    "name": "Anthrazit",
+    "hex": "#55585e",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 5,
+  "waerme": 3,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "buero",
+   "festlich"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "shorts-khaki",
+  "datei": "shorts-khaki.jpg",
+  "kategorie": "unterteil",
+  "bezeichnung": "Khaki Shorts",
+  "farben": [
+   {
+    "name": "Khaki",
+    "hex": "#b8a785",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 2,
+  "waerme": 1,
+  "saisons": [
+   "sommer"
+  ],
+  "anlaesse": [
+   "freizeit"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "lauftights",
+  "datei": "lauftights.jpg",
+  "kategorie": "unterteil",
+  "bezeichnung": "Schwarze Lauftights",
+  "farben": [
+   {
+    "name": "Schwarz",
+    "hex": "#1c1c20",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 1,
+  "waerme": 3,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "sport"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "mantel-camel",
+  "datei": "mantel-camel.jpg",
+  "kategorie": "jacke",
+  "bezeichnung": "Camel Wollmantel",
+  "farben": [
+   {
+    "name": "Camel",
+    "hex": "#b98d5a",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 4,
+  "waerme": 5,
+  "saisons": [
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "buero",
+   "ausgehen",
+   "festlich"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "regenjacke-gelb",
+  "datei": "regenjacke-gelb.jpg",
+  "kategorie": "jacke",
+  "bezeichnung": "Gelbe Regenjacke",
+  "farben": [
+   {
+    "name": "Gelb",
+    "hex": "#f0c030",
+    "neutral": false
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 2,
+  "waerme": 2,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst"
+  ],
+  "anlaesse": [
+   "freizeit",
+   "sport"
+  ],
+  "regenfest": true
+ },
+ {
+  "demoId": "daunenjacke",
+  "datei": "daunenjacke.jpg",
+  "kategorie": "jacke",
+  "bezeichnung": "Schwarze Daunenjacke",
+  "farben": [
+   {
+    "name": "Schwarz",
+    "hex": "#2a2a2e",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 2,
+  "waerme": 5,
+  "saisons": [
+   "winter"
+  ],
+  "anlaesse": [
+   "freizeit",
+   "buero"
+  ],
+  "regenfest": true
+ },
+ {
+  "demoId": "sneaker-weiss",
+  "datei": "sneaker-weiss.jpg",
+  "kategorie": "schuhe",
+  "bezeichnung": "Weiße Sneaker",
+  "farben": [
+   {
+    "name": "Weiß",
+    "hex": "#f3f3f0",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 2,
+  "waerme": 2,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst"
+  ],
+  "anlaesse": [
+   "freizeit",
+   "buero",
+   "ausgehen"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "boots-braun",
+  "datei": "boots-braun.jpg",
+  "kategorie": "schuhe",
+  "bezeichnung": "Braune Lederboots",
+  "farben": [
+   {
+    "name": "Braun",
+    "hex": "#6e4529",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 3,
+  "waerme": 4,
+  "saisons": [
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "buero",
+   "freizeit",
+   "ausgehen"
+  ],
+  "regenfest": true
+ },
+ {
+  "demoId": "derby-schwarz",
+  "datei": "derby-schwarz.jpg",
+  "kategorie": "schuhe",
+  "bezeichnung": "Schwarze Lederschuhe",
+  "farben": [
+   {
+    "name": "Schwarz",
+    "hex": "#1e1d1f",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 5,
+  "waerme": 3,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "buero",
+   "festlich",
+   "ausgehen"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "laufschuhe",
+  "datei": "laufschuhe.jpg",
+  "kategorie": "schuhe",
+  "bezeichnung": "Blaue Laufschuhe",
+  "farben": [
+   {
+    "name": "Blau",
+    "hex": "#2f6fd6",
+    "neutral": false
+   },
+   {
+    "name": "Neongelb",
+    "hex": "#c8ff3c",
+    "neutral": false
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 1,
+  "waerme": 2,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "sport"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "schal-rot",
+  "datei": "schal-rot.jpg",
+  "kategorie": "accessoire",
+  "bezeichnung": "Roter Wollschal",
+  "farben": [
+   {
+    "name": "Rot",
+    "hex": "#b02a30",
+    "neutral": false
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 3,
+  "waerme": 5,
+  "saisons": [
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "freizeit",
+   "buero",
+   "ausgehen"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "muetze-grau",
+  "datei": "muetze-grau.jpg",
+  "kategorie": "accessoire",
+  "bezeichnung": "Graue Strickmütze",
+  "farben": [
+   {
+    "name": "Grau",
+    "hex": "#9a9a9e",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 2,
+  "waerme": 5,
+  "saisons": [
+   "winter"
+  ],
+  "anlaesse": [
+   "freizeit",
+   "sport"
+  ],
+  "regenfest": false
+ },
+ {
+  "demoId": "guertel-braun",
+  "datei": "guertel-braun.jpg",
+  "kategorie": "accessoire",
+  "bezeichnung": "Brauner Ledergürtel",
+  "farben": [
+   {
+    "name": "Braun",
+    "hex": "#6a4128",
+    "neutral": true
+   }
+  ],
+  "muster": "uni",
+  "formalitaet": 4,
+  "waerme": 3,
+  "saisons": [
+   "fruehling",
+   "sommer",
+   "herbst",
+   "winter"
+  ],
+  "anlaesse": [
+   "buero",
+   "festlich",
+   "ausgehen"
+  ],
+  "regenfest": false
+ }
+]

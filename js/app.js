@@ -116,7 +116,9 @@ function renderSchrank() {
         <img src="${imgUrl(i)}" alt="" loading="lazy">
         <span>${esc(i.bezeichnung || KATEGORIEN[i.kategorie])}</span>
       </button>`).join('')}</div>`
-    : `<div class="empty"><div class="big">👕</div><p>Noch nichts im Schrank.<br>Tippe auf <b>+</b> und fotografiere dein erstes Kleidungsstück.</p><p class="muted">Tipp: Kleidung flach auf einen ruhigen Untergrund legen oder auf einen Bügel hängen.</p></div>`}
+    : `<div class="empty"><div class="big">👕</div><p>Noch nichts im Schrank.<br>Tippe auf <b>+</b> und fotografiere dein erstes Kleidungsstück.</p><p class="muted">Tipp: Kleidung flach auf einen ruhigen Untergrund legen oder auf einen Bügel hängen.</p>
+      <button class="btn" data-act="loadDemo">Beispiel-Schrank laden</button>
+      <p class="muted small">27 gezeichnete Beispielteile zum Ausprobieren – ohne Fotos, ohne API-Kosten. Lassen sich jederzeit wieder entfernen.</p></div>`}
     <label class="fab" aria-label="Kleidungsstück hinzufügen">+
       <input id="photoInput" type="file" accept="image/*" multiple hidden>
     </label>`;
@@ -456,13 +458,19 @@ function renderSettings() {
       <div class="chips">${Object.entries(KATEGORIEN).map(([k, v]) => `<label class="chip check"><input type="checkbox" data-act="repeatCat" value="${k}" ${s.repeatCats.includes(k) ? 'checked' : ''}><span>${v}</span></label>`).join('')}</div>
     </section>
     <section class="card">
+      <h2>Beispiel-Schrank</h2>
+      <p class="muted small">27 gezeichnete Beispielteile (Alltag, Büro, Festlich, Sport) zum Ausprobieren. ${state.items.some((i) => i.demo) ? `Aktuell geladen: ${state.items.filter((i) => i.demo).length} Teile.` : ''}</p>
+      <div class="row"><button class="btn small" data-act="loadDemo">Laden</button>
+      <button class="btn danger small" data-act="removeDemo" ${state.items.some((i) => i.demo) ? '' : 'disabled'}>Entfernen</button></div>
+    </section>
+    <section class="card">
       <h2>Sicherung</h2>
       <p class="muted small">Alle Daten liegen nur auf diesem iPhone. Exportiere regelmäßig eine Sicherung (z. B. in iCloud Drive).</p>
       <div class="row"><button class="btn small" data-act="export">Exportieren</button>
       <label class="btn small">Importieren<input type="file" id="importInput" accept="application/json,.json" hidden></label></div>
       <button class="btn danger small" data-act="wipe">Alle Daten löschen</button>
     </section>
-    <p class="muted small center">Kleiderschrank · Version 1.0</p>`;
+    <p class="muted small center">Kleiderschrank · Version 1.1</p>`;
 }
 
 async function exportBackup() {
@@ -495,6 +503,35 @@ async function importBackup(file) {
   if (data.settings) { state.settings = { ...state.settings, ...data.settings, apiKey: state.settings.apiKey }; await saveSettings(); }
   state.items = await db.allItems();
   toast(`${n} Teile importiert.`);
+}
+
+// ---------- Beispiel-Schrank ----------
+async function loadDemo() {
+  const list = await (await fetch('demo/demo.json')).json();
+  const have = new Set(state.items.filter((i) => i.demo).map((i) => i.demoId));
+  let n = 0;
+  for (const d of list) {
+    if (have.has(d.demoId)) continue; // nicht doppelt laden
+    const image = await (await fetch('demo/' + d.datei)).blob();
+    const { datei, ...meta } = d;
+    const item = { ...newItem(image), ...meta, demo: true };
+    await db.putItem(item);
+    state.items.push(item);
+    n++;
+  }
+  toast(n ? `${n} Beispielteile geladen.` : 'Der Beispiel-Schrank ist schon geladen.');
+  render();
+}
+
+async function removeDemo() {
+  const demo = state.items.filter((i) => i.demo);
+  for (const i of demo) await db.deleteItem(i.id);
+  state.items = state.items.filter((i) => !i.demo);
+  // Wochenplan/Outfit verweisen evtl. auf gelöschte Teile -> neu laden
+  state.week = await loadWeek();
+  state.outfit.current = null;
+  toast(`${demo.length} Beispielteile entfernt.`);
+  render();
 }
 
 // ---------- Ereignisse ----------
@@ -579,6 +616,10 @@ document.addEventListener('click', async (ev) => {
         }, () => toast('Standort nicht verfügbar.'));
         break;
       case 'export': await exportBackup(); break;
+      case 'loadDemo': el.disabled = true; toast('Beispiel-Schrank wird geladen …'); await loadDemo(); break;
+      case 'removeDemo':
+        if (!confirm('Alle Beispielteile aus dem Schrank entfernen? Deine eigenen Teile bleiben erhalten.')) break;
+        await removeDemo(); break;
       case 'wipe':
         if (!confirm('Wirklich ALLE Kleidungsstücke, Pläne und Einstellungen löschen?')) break;
         await db.clearAll();

@@ -11,6 +11,12 @@ Web-App (PWA): Kleidung fotografieren, automatisch per KI erkennen lassen und Ou
 
 > Wichtig: Die Daten liegen nur auf dem Gerät (im Speicher der Home-Bildschirm-App, getrennt von Safari). Unter *Einstellungen → Sicherung* regelmäßig exportieren.
 
+## Beispiel-Schrank zum Ausprobieren
+
+Ohne eigene Fotos testen: im leeren Schrank auf **„Beispiel-Schrank laden"** tippen (oder *Einstellungen → Beispiel-Schrank*). Dann kommen 27 gezeichnete Teile für Alltag, Büro, Festlich und Sport in den Schrank, fertig beschrieben und ohne API-Kosten. Über *Entfernen* verschwinden nur diese Teile, eigene bleiben erhalten.
+
+Die Bilder liegen in [`demo/`](demo/) und lassen sich auch in die Fotos-App speichern, um die KI-Erkennung über **+** zu testen. Erzeugt werden sie mit `python3 tools/make_demo.py`.
+
 ## Funktionen
 
 | Ansicht | Was passiert |
